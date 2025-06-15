@@ -1,0 +1,56 @@
+/* OverlayMenu.css */
+
+.overlay-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 10;
+}
+
+.hamburger {
+    font-size: 24px;
+    padding: 10px;
+    cursor: pointer;
+    opacity: 0.1;
+    transition: opacity 0.3s;
+    color: white;
+    user-select: none;
+}
+
+.hamburger:hover {
+    opacity: 1;
+}
+
+.overlay-container.open .hamburger {
+    opacity: 1;
+}
+
+.panel {
+    position: absolute;
+    top: 0;
+    left: 40px;
+    width: 250px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 15px;
+    border-radius: 4px;
+    transform: translateX(-110%);
+    transition: transform 0.3s;
+}
+
+.overlay-container.open .panel {
+    transform: translateX(0);
+}
+
+.panel h3,
+.panel h4 {
+    margin: 0 0 10px;
+}
+
+.panel p,
+.panel li {
+    margin: 0 0 5px;
+    font-size: 14px;
+}
