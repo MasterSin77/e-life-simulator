@@ -1,46 +1,82 @@
-# Getting Started with Create React App
+# e-Life: Robust Evolution Simulator ![version](https://img.shields.io/badge/version-1.0-brightgreen)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+**Version 1.0 — stable fullscreen multi-core evolution engine**  
+A high-performance cellular automaton using **React**, **TypeScript**, and **Web Workers**.  
+Designed as an experimental sandbox for large-scale emergent life, physics and universe-scale expansions.
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## 📌 **Project Summary**
 
-### `npm start`
+**Key features:**
+- `SharedArrayBuffer` double-buffer grid for ultra-fast cell updates.
+- Splits work across all CPU cores via `Web Workers`.
+- Uses a single `<canvas>` with GPU acceleration.
+- True fullscreen — grid and canvas always match window size.
+- Includes a minimal hamburger overlay with FPS, PUPS (Pixel Updates Per Second) & worker timings.
+- Proven leak resistance: memory stays stable under long runs.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+---
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## ⚙️ **Core Design Principles**
 
-### `npm test`
+✅ **Leak-resistant:**  
+Reuses shared buffers, swaps read/write safely, avoids heap churn.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+✅ **Fully Parallel:**  
+Chunks the grid evenly across CPU cores.
 
-### `npm run build`
+✅ **Pixel-accurate:**  
+Classic binary state (alive/dead) life rules, using true double buffering.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+✅ **Instant Resize:**  
+Resizes grid & physics seamlessly — restarts workers safely.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+✅ **Browser-friendly:**  
+When hidden, browser throttles loops to reduce resource use.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+---
 
-### `npm run eject`
+## 🚀 **Known State**
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+| Feature               | Status |
+| --------------------- | ------ |
+| Fullscreen, responsive | ✅ |
+| Smooth physics loop   | ✅ |
+| Multi-core chunking   | ✅ |
+| Scrollbars: none      | ✅ |
+| Hamburger overlay UI  | ✅ |
+| Memory stable         | ✅ |
+| Edge wrapping         | ❌ _(planned)_ |
+| Universe expansion    | ❌ _(planned)_ |
+| Gravity physics       | ❌ _(planned)_ |
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+---
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## 📈 **Roadmap**
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+**1️⃣ Edge wrapping:** Toroidal grid (top/bottom, left/right wrap).  
+**2️⃣ Universe expansion:** Dynamic grid growth over time.  
+**3️⃣ Local gravity:** Simulate localized attraction wells.
 
-## Learn More
+---
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## 🧑‍💻 **Run Locally (with Secure Headers)**
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+> **Important:**  
+> `SharedArrayBuffer` requires **cross-origin isolation** (COOP & COEP headers).  
+> Local dev servers do **not** set these by default — so this project includes a simple Express server that does.
+
+```bash
+# Install dependencies
+npm install
+
+# Build production version
+npm run build
+
+# Start secure local server (adds required headers)
+node server.js
+
+# Or use:
+npm run start
+# (if you have `start` set to run server.js)
