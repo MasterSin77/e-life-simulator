@@ -39,6 +39,9 @@ This repository now includes a captured scene that can be recreated from GitHub 
 - Settings-only export (all menu values + draggable object positions): `docs/repro/readme-settings.json`
 - Screenshot asset: `docs/repro/readme-repro-screenshot.png`
 
+> Note: exact repro bundles are intentionally large (often tens of MB) because they include full RGBA simulation buffers for precise frame restoration.
+> Use the settings-only JSON for lightweight sharing when exact pixel-for-pixel reconstruction is not required.
+
 ### Recreate the exact scene from GitHub
 
 1. Start the app with `npm start`.

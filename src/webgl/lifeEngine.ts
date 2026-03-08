@@ -37,7 +37,10 @@ export async function startLifeEngine(
     options: LifeEngineOptions = {}
 ): Promise<LifeEngineHandle> {
     const { setFps, setPups, getOffset, getControls, onMetrics } = options;
-    const gl = canvas.getContext('webgl2')!;
+    const gl = canvas.getContext('webgl2', {
+        preserveDrawingBuffer: true,
+        alpha: false,
+    })!;
     if (!gl) throw new Error('WebGL2 not supported');
     const supportsFloatTargets = !!gl.getExtension('EXT_color_buffer_float');
 

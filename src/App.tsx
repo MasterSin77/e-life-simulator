@@ -31,6 +31,13 @@ interface ReproBundle {
   snapshot: SerializedSnapshot;
 }
 
+interface ReproSettingsOnly {
+  schema: string;
+  exportedAt: string;
+  controls: SimulationControls;
+  handleOpacity: number;
+}
+
 const uint8ToBase64 = (data: Uint8Array) => {
   let binary = '';
   for (let i = 0; i < data.length; i += 1) {
@@ -211,18 +218,34 @@ const App: React.FC = () => {
   };
 
   const saveReproBundle = async () => {
-    const bundle = await captureReproBundle();
-    const stamp = bundle.exportedAt.replace(/[:.]/g, '-');
-    const baseName = `e-life-repro-${stamp}`;
+    try {
+      const bundle = await captureReproBundle();
+      const stamp = bundle.exportedAt.replace(/[:.]/g, '-');
+      const baseName = `e-life-repro-${stamp}`;
+      const settingsOnly: ReproSettingsOnly = {
+        schema: SETTINGS_SCHEMA,
+        exportedAt: bundle.exportedAt,
+        controls,
+        handleOpacity,
+      };
 
-    downloadFile(
-      `${baseName}.json`,
-      new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
-    );
+      downloadFile(
+        `${baseName}.json`,
+        new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      );
 
-    const response = await fetch(bundle.screenshotDataUrl);
-    const imageBlob = await response.blob();
-    downloadFile(`${baseName}.png`, imageBlob);
+      downloadFile(
+        `${baseName}-settings.json`,
+        new Blob([JSON.stringify(settingsOnly, null, 2)], { type: 'application/json' })
+      );
+
+      const response = await fetch(bundle.screenshotDataUrl);
+      const imageBlob = await response.blob();
+      downloadFile(`${baseName}.png`, imageBlob);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save repro bundle.';
+      window.alert(message);
+    }
   };
 
   const loadReproBundle = () => {
