@@ -1,168 +1,83 @@
-# e-Life: Robust Evolution Simulator ![version](https://img.shields.io/badge/version-2.0-blue)
+# e-Life: GPU Evolution Simulator ![version](https://img.shields.io/badge/version-3.1.0-blue)
 
-**Version 2.0 — final multi-core CPU version, preparing for GPU rewrite**
+**Version 3.1.0 — WebGL Conway + gravity-well simulation with configurable life-rule controls**
 
-e-Life is an experimental sandbox for large-scale emergent life, physics, and future universe-scale expansions.  
-Originally built with **React**, **TypeScript**, and **Web Workers**, it runs a Conway-like cellular automaton with parallel chunking on all available CPU cores.
+e-Life is an experimental real-time sandbox for emergent structures driven by Conway-like cellular rules, advection, and stylized black/white-hole gravity fields. The simulation runs in a GPU shader pipeline and is controlled via React overlay menus.
 
----
+## What the simulation implements
 
-## 📌 **What’s New in 2.0**
+- **GPU pipeline** (WebGL2 fragment passes): density, blur, wells, gravity force, velocity integration, advection, life update, display.
+- **Gravity-well model** with two black holes + one white hole, plus event horizon absorption and optional gravity-field display.
+- **Conway-derived life model** that supports classic behavior and extended rules via menu controls.
+- **Objective metrics** sampled from GPU buffers (alive ratio, neighbor harmony, average velocity, objective score).
 
-**Milestone progress since 1.0:**
+## Recent changes in v3.1.0
 
-✅ Added **Toroidal edge wrapping** (no more static boundaries).  
-✅ Added **vector channels** — each pixel now has encoded local velocity and can drift.  
-✅ Implemented **chunk-based gravity approximation** (coarse local attraction).  
-✅ Verified **CPU parallelism scaling** to all logical cores.  
-✅ Rigorous leak testing — runs stably for extended periods.
+- Added fully configurable Conway rule windows:
+  - `Birth Min`, `Birth Max`
+  - `Survive Min`, `Survive Max`
+- Added life persistence controls:
+  - `Decay Blend` (mix prior state into next state)
+  - `Transport Retention` (how much advected signal persists)
+- Wired new controls end-to-end:
+  - Typed control model + sanitizer bounds/normalization
+  - WebGL uniform uploads in the engine
+  - Shader logic updates in `computeLife.frag`
+  - Conway menu sliders in the UI
+- Added/updated tests for control sanitization and Conway parameter normalization.
 
-**What we learned:**
+## Important simulation notes
 
-- Pure CPU chunking is solid for discrete life rules (birth/death).
-- Local vector sums & drift work, but are not truly “gravity-like” at large scale.
-- Global gravity requires whole-field attraction — this is computationally intensive for CPUs alone.
-- Memory & CPU usage scale linearly with grid size and cores; the GPU remains underutilized.
+- This is a **stylized physics model**, not a full relativistic solver.
+- Orbital/escape behaviors are influenced by:
+  - velocity cap and damping
+  - event horizon absorption
+  - Conway decay and transport blending
+- Use the Conway menu to tune volatility vs persistence before drawing conclusions about “escape” behavior.
 
----
+## Run the project
 
-## ⚙️ **Design Principles**
-
-✅ **Leak-resistant**  
-✅ **Full CPU parallelism**  
-✅ **Vector field per pixel**  
-✅ **True fullscreen + resize-safe**  
-✅ **Cross-origin isolated server for SharedArrayBuffer**  
-✅ **Clear debug logs + worker timing stats**
-
----
-
-## 🚩 **Known Constraints in 2.0**
-
-| Feature                    | Status |
-| -------------------------- | ------ |
-| Edge wrapping              | ✅ |
-| Vector-based drift         | ✅ |
-| Chunked local gravity      | ✅ _(approximate)_ |
-| **True global gravity**    | ❌ _(needs full-field solver)_ |
-| **Dead pixel drift**       | ✅ _(coarse)_ |
-| Full GPU physics pipeline  | ❌ _(next step)_ |
-
----
-
-## 🚀 **Next: Full GPU Engine**
-
-Moving forward, the simulator will transition to a **WebGL/WebGPU architecture**:
-
-- **All grid physics** handled in fragment shaders for true parallelism.
-- Coarse + global gravity solved on the GPU.
-- Smooth orbits and attraction wells possible at scale.
-- CPU used only for input & high-level orchestration.
-
-This will unlock:
-- Massive performance improvements (10×–100× faster).
-- Realistic universal drift & structure formation.
-- Lower CPU & RAM footprint.
-
----
-
-## 🧑‍💻 **Run Locally (with Secure Headers)**
-
-> **Note:**  
-> `SharedArrayBuffer` requires COOP/COEP headers. Use the included Express server.
+### Development
 
 ```bash
-# Install dependencies
-npm install
+npm start
+```
 
-# Build production
-npm run build
+Runs the React dev server with hot reload.
 
-# Start secure server
-node server.js
-
-
--------------
-
-# e-Life: Robust Evolution Simulator ![version](https://img.shields.io/badge/version-1.0-brightgreen)
-
-**Version 1.0 — stable fullscreen multi-core evolution engine**  
-A high-performance cellular automaton using **React**, **TypeScript**, and **Web Workers**.  
-Designed as an experimental sandbox for large-scale emergent life, physics and universe-scale expansions.
-
----
-
-## 📌 **Project Summary**
-
-**Key features:**
-- `SharedArrayBuffer` double-buffer grid for ultra-fast cell updates.
-- Splits work across all CPU cores via `Web Workers`.
-- Uses a single `<canvas>` with GPU acceleration.
-- True fullscreen — grid and canvas always match window size.
-- Includes a minimal hamburger overlay with FPS, PUPS (Pixel Updates Per Second) & worker timings.
-- Proven leak resistance: memory stays stable under long runs.
-
----
-
-## ⚙️ **Core Design Principles**
-
-✅ **Leak-resistant:**  
-Reuses shared buffers, swaps read/write safely, avoids heap churn.
-
-✅ **Fully Parallel:**  
-Chunks the grid evenly across CPU cores.
-
-✅ **Pixel-accurate:**  
-Classic binary state (alive/dead) life rules, using true double buffering.
-
-✅ **Instant Resize:**  
-Resizes grid & physics seamlessly — restarts workers safely.
-
-✅ **Browser-friendly:**  
-When hidden, browser throttles loops to reduce resource use.
-
----
-
-## 🚀 **Known State**
-
-| Feature               | Status |
-| --------------------- | ------ |
-| Fullscreen, responsive | ✅ |
-| Smooth physics loop   | ✅ |
-| Multi-core chunking   | ✅ |
-| Scrollbars: none      | ✅ |
-| Hamburger overlay UI  | ✅ |
-| Memory stable         | ✅ |
-| Edge wrapping         | ❌ _(planned)_ |
-| Universe expansion    | ❌ _(planned)_ |
-| Gravity physics       | ❌ _(planned)_ |
-
----
-
-## 📈 **Roadmap**
-
-**1️⃣ Edge wrapping:** Toroidal grid (top/bottom, left/right wrap).  
-**2️⃣ Universe expansion:** Dynamic grid growth over time.  
-**3️⃣ Local gravity:** Simulate localized attraction wells.
-
----
-
-## 🧑‍💻 **Run Locally (with Secure Headers)**
-
-> **Important:**  
-> `SharedArrayBuffer` requires **cross-origin isolation** (COOP & COEP headers).  
-> Local dev servers do **not** set these by default — so this project includes a simple Express server that does.
+### Production build
 
 ```bash
-# Install dependencies
-npm install
-
-# Build production version
 npm run build
+```
 
-# Start secure local server (adds required headers)
-node server.js
+Creates an optimized build in `/build`.
 
-# Or use:
-npm run start
-# (if you have `start` set to run server.js)
+### Serve build locally
+
+```bash
+npm run serve
+```
+
+Serves the production build via `server.js`.
+
+### Run tests (single run)
+
+```bash
+npm test -- --watch=false
+```
+
+## Key files
+
+- GPU engine: `/src/webgl/lifeEngine.ts`
+- Simulation controls/types: `/src/webgl/simulationTypes.ts`
+- Conway/holes menu UI: `/src/components/OverlayMenu.tsx`
+- Main app composition: `/src/App.tsx`
+- Life shader: `/public/shaders/computeLife.frag`
+- Gravity/velocity shaders: `/public/shaders/computeGravity.frag`, `/public/shaders/computeVelocity.frag`
+- Objective metrics: `/src/simulation/objectiveMetrics.ts`
+
+## Versioning
+
+- Current version: **3.1.0**
+- Baseline progression: CPU prototype (v1/v2) → GPU pipeline (v3+) with interactive control expansion.
