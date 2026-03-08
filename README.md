@@ -1,6 +1,6 @@
-# e-Life: GPU Evolution Simulator ![version](https://img.shields.io/badge/version-3.1.0-blue)
+# e-Life: GPU Evolution Simulator ![version](https://img.shields.io/badge/version-3.1.1-blue)
 
-**Version 3.1.0 — WebGL Conway + gravity-well simulation with configurable life-rule controls**
+**Version 3.1.1 — WebGL Conway + gravity-well simulation with reproducible showcase bundles**
 
 e-Life is an experimental real-time sandbox for emergent structures driven by Conway-like cellular rules, advection, and stylized black/white-hole gravity fields. The simulation runs in a GPU shader pipeline and is controlled via React overlay menus.
 
@@ -11,7 +11,7 @@ e-Life is an experimental real-time sandbox for emergent structures driven by Co
 - **Conway-derived life model** that supports classic behavior and extended rules via menu controls.
 - **Objective metrics** sampled from GPU buffers (alive ratio, neighbor harmony, average velocity, objective score).
 
-## Recent changes in v3.1.0
+## Recent changes in v3.1.1
 
 - Added fully configurable Conway rule windows:
   - `Birth Min`, `Birth Max`
@@ -28,6 +28,7 @@ e-Life is an experimental real-time sandbox for emergent structures driven by Co
 - Added reproducibility bundle flow:
   - `Save Repro Bundle` exports exact frame state + settings + screenshot.
   - `Load Repro Bundle` restores state, controls, and draggable object locations.
+- Added compressed exact-state bundle support (`.json.gz`) for practical sharing and GitHub replication.
 
 ## Reproducible showcase
 
@@ -35,19 +36,20 @@ This repository now includes a captured scene that can be recreated from GitHub 
 
 ![e-Life reproducible scene](docs/repro/readme-repro-screenshot.png)
 
-- Repro bundle (exact frame state + settings): `docs/repro/readme-repro-bundle.json` in repo, and `.json.gz` when exported from the app
+- Repro bundle (exact frame state + settings, compressed): `docs/repro/readme-repro-bundle.json.gz`
+- Repro bundle (uncompressed): `docs/repro/readme-repro-bundle.json`
 - Settings-only export (all menu values + draggable object positions): `docs/repro/readme-settings.json`
 - Screenshot asset: `docs/repro/readme-repro-screenshot.png`
 
-> Note: exact repro bundles are intentionally larger than settings-only files because they include full RGBA simulation buffers for precise frame restoration.
-> App exports now use `.json.gz` compression for practical sharing sizes.
+> Note: exact repro bundles are larger than settings-only files because they include full RGBA simulation buffers for precise frame restoration.
+> Use the `.json.gz` bundle for GitHub sharing and normal use.
 > Use the settings-only JSON for lightweight sharing when exact pixel-for-pixel reconstruction is not required.
 
 ### Recreate the exact scene from GitHub
 
 1. Start the app with `npm start`.
 2. Open either menu and click **Load Repro Bundle**.
-3. Select `docs/repro/readme-repro-bundle.json`.
+3. Select `docs/repro/readme-repro-bundle.json.gz` (or the `.json` variant).
 4. The simulator restores controls, object locations, and GPU state to match the screenshot.
 
 ## Important simulation notes
@@ -102,6 +104,7 @@ npm run capture:repro
 
 This refreshes:
 
+- `docs/repro/readme-repro-bundle.json.gz`
 - `docs/repro/readme-repro-bundle.json`
 - `docs/repro/readme-settings.json`
 - `docs/repro/readme-repro-screenshot.png`
@@ -118,5 +121,5 @@ This refreshes:
 
 ## Versioning
 
-- Current version: **3.1.0**
+- Current version: **3.1.1**
 - Baseline progression: CPU prototype (v1/v2) → GPU pipeline (v3+) with interactive control expansion.
