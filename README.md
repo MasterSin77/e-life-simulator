@@ -35,11 +35,12 @@ This repository now includes a captured scene that can be recreated from GitHub 
 
 ![e-Life reproducible scene](docs/repro/readme-repro-screenshot.png)
 
-- Repro bundle (exact frame state + settings + screenshot): `docs/repro/readme-repro-bundle.json`
+- Repro bundle (exact frame state + settings): `docs/repro/readme-repro-bundle.json` in repo, and `.json.gz` when exported from the app
 - Settings-only export (all menu values + draggable object positions): `docs/repro/readme-settings.json`
 - Screenshot asset: `docs/repro/readme-repro-screenshot.png`
 
-> Note: exact repro bundles are intentionally large (often tens of MB) because they include full RGBA simulation buffers for precise frame restoration.
+> Note: exact repro bundles are intentionally larger than settings-only files because they include full RGBA simulation buffers for precise frame restoration.
+> App exports now use `.json.gz` compression for practical sharing sizes.
 > Use the settings-only JSON for lightweight sharing when exact pixel-for-pixel reconstruction is not required.
 
 ### Recreate the exact scene from GitHub

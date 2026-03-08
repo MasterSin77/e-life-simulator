@@ -27,7 +27,6 @@ interface ReproBundle {
   exportedAt: string;
   controls: SimulationControls;
   handleOpacity: number;
-  screenshotDataUrl: string;
   snapshot: SerializedSnapshot;
 }
 
@@ -53,6 +52,29 @@ const base64ToUint8 = (encoded: string) => {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+};
+
+const supportsCompressionStreams =
+  typeof window !== 'undefined' &&
+  'CompressionStream' in window &&
+  'DecompressionStream' in window;
+
+const compressTextGzip = async (text: string) => {
+  if (!supportsCompressionStreams) {
+    return new Blob([text], { type: 'application/json' });
+  }
+  const stream = new Blob([text], { type: 'application/json' })
+    .stream()
+    .pipeThrough(new CompressionStream('gzip'));
+  return new Response(stream).blob();
+};
+
+const decompressGzipToText = async (blob: Blob) => {
+  if (!supportsCompressionStreams) {
+    throw new Error('This browser does not support .gz repro imports. Use the .json bundle instead.');
+  }
+  const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).text();
 };
 
 const App: React.FC = () => {
@@ -192,7 +214,6 @@ const App: React.FC = () => {
       exportedAt: new Date().toISOString(),
       controls,
       handleOpacity,
-      screenshotDataUrl: captured.screenshotDataUrl,
       snapshot: {
         width: captured.snapshot.width,
         height: captured.snapshot.height,
@@ -203,7 +224,10 @@ const App: React.FC = () => {
       },
     };
 
-    return payload;
+    return {
+      bundle: payload,
+      screenshotDataUrl: captured.screenshotDataUrl,
+    };
   };
 
   const downloadFile = (filename: string, blob: Blob) => {
@@ -219,7 +243,7 @@ const App: React.FC = () => {
 
   const saveReproBundle = async () => {
     try {
-      const bundle = await captureReproBundle();
+      const { bundle, screenshotDataUrl } = await captureReproBundle();
       const stamp = bundle.exportedAt.replace(/[:.]/g, '-');
       const baseName = `e-life-repro-${stamp}`;
       const settingsOnly: ReproSettingsOnly = {
@@ -230,8 +254,8 @@ const App: React.FC = () => {
       };
 
       downloadFile(
-        `${baseName}.json`,
-        new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+        `${baseName}.json.gz`,
+        await compressTextGzip(JSON.stringify(bundle))
       );
 
       downloadFile(
@@ -239,7 +263,7 @@ const App: React.FC = () => {
         new Blob([JSON.stringify(settingsOnly, null, 2)], { type: 'application/json' })
       );
 
-      const response = await fetch(bundle.screenshotDataUrl);
+      const response = await fetch(screenshotDataUrl);
       const imageBlob = await response.blob();
       downloadFile(`${baseName}.png`, imageBlob);
     } catch (error) {
@@ -251,12 +275,15 @@ const App: React.FC = () => {
   const loadReproBundle = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'application/json,.json';
+    input.accept = 'application/json,.json,.gz';
     input.onchange = async () => {
       try {
         const file = input.files?.[0];
         if (!file) return;
-        const raw = await file.text();
+        const lower = file.name.toLowerCase();
+        const raw = lower.endsWith('.gz')
+          ? await decompressGzipToText(file)
+          : await file.text();
         const parsed = JSON.parse(raw) as ReproBundle;
         if (parsed.schema !== REPRO_SCHEMA || !parsed.snapshot) {
           throw new Error('Invalid repro bundle file.');
