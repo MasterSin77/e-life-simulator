@@ -15,10 +15,21 @@ interface LifeEngineOptions {
     onMetrics?: (metrics: ObjectiveMetrics) => void;
 }
 
+export interface LifeEngineSnapshot {
+    width: number;
+    height: number;
+    state: Uint8Array;
+    force: Uint8Array;
+    velocity: Uint8Array;
+    wells: Uint8Array;
+}
+
 export interface LifeEngineHandle {
     stop: () => void;
     randomize: (seedDensity?: number) => void;
     resize: (width: number, height: number) => void;
+    captureSnapshot: () => LifeEngineSnapshot;
+    restoreSnapshot: (snapshot: LifeEngineSnapshot) => void;
 }
 
 export async function startLifeEngine(
@@ -49,6 +60,15 @@ export async function startLifeEngine(
     const advectProgram = makeProgram(gl, advectFS);
     const lifeProgram = makeProgram(gl, lifeFS);
     const displayProgram = makeProgram(gl, displayFS);
+    const copyProgram = makeProgram(gl, `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 outColor;
+uniform sampler2D u_texture;
+void main() {
+    outColor = texture(u_texture, v_uv);
+}
+`);
     const programs = [
         densityProgram,
         blurProgram,
@@ -57,6 +77,7 @@ export async function startLifeEngine(
         velocityProgram,
         advectProgram,
         lifeProgram,
+        copyProgram,
         displayProgram,
     ];
 
@@ -131,6 +152,7 @@ export async function startLifeEngine(
     const fE = gl.createFramebuffer()!;
     const fF = gl.createFramebuffer()!;
     const framebuffers = [fA, fB, fV, fW, fC, fD, fE, fF];
+    const uploadTexture = createTex(false);
 
     const bindFramebufferTexture = (f: WebGLFramebuffer, t: WebGLTexture) => {
         gl.bindFramebuffer(gl.FRAMEBUFFER, f);
@@ -462,6 +484,50 @@ export async function startLifeEngine(
         onMetrics?.(computeObjectiveMetrics(stateReadback, velocityReadback, canvas.width, canvas.height));
     };
 
+    const readFramebuffer = (framebuffer: WebGLFramebuffer) => {
+        const readback = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, readback);
+        return readback;
+    };
+
+    const uploadToTexture = (
+        texture: WebGLTexture,
+        framebuffer: WebGLFramebuffer,
+        data: Uint8Array,
+        useFloatTarget: boolean
+    ) => {
+        if (!useFloatTarget) {
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texSubImage2D(
+                gl.TEXTURE_2D,
+                0,
+                0,
+                0,
+                canvas.width,
+                canvas.height,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                data
+            );
+            return;
+        }
+
+        gl.bindTexture(gl.TEXTURE_2D, uploadTexture);
+        gl.texSubImage2D(
+            gl.TEXTURE_2D,
+            0,
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            data
+        );
+        pass(copyProgram, [uploadTexture], framebuffer, performance.now());
+    };
+
     const resize = (width: number, height: number) => {
         canvas.width = Math.max(1, Math.floor(width));
         canvas.height = Math.max(1, Math.floor(height));
@@ -542,6 +608,7 @@ export async function startLifeEngine(
             gl.bindVertexArray(null);
 
             textures().forEach((texture) => gl.deleteTexture(texture));
+            gl.deleteTexture(uploadTexture);
             framebuffers.forEach((fb) => gl.deleteFramebuffer(fb));
             programs.forEach((program) => gl.deleteProgram(program));
             gl.deleteBuffer(vbo);
@@ -549,5 +616,29 @@ export async function startLifeEngine(
         },
         randomize,
         resize,
+        captureSnapshot: () => ({
+            width: canvas.width,
+            height: canvas.height,
+            state: readFramebuffer(fA),
+            force: readFramebuffer(fB),
+            velocity: readFramebuffer(fV),
+            wells: readFramebuffer(fE),
+        }),
+        restoreSnapshot: (snapshot: LifeEngineSnapshot) => {
+            if (snapshot.width !== canvas.width || snapshot.height !== canvas.height) {
+                resize(snapshot.width, snapshot.height);
+            }
+
+            uploadToTexture(A, fA, snapshot.state, false);
+            uploadToTexture(D, fD, snapshot.state, false);
+
+            uploadToTexture(B, fB, snapshot.force, useFloatForDynamics);
+
+            uploadToTexture(V, fV, snapshot.velocity, useFloatForDynamics);
+            uploadToTexture(W, fW, snapshot.velocity, useFloatForDynamics);
+
+            uploadToTexture(E, fE, snapshot.wells, false);
+            uploadToTexture(F, fF, snapshot.wells, false);
+        },
     };
 }

@@ -26,6 +26,8 @@ describe('OverlayMenu', () => {
                 downloadSettings={() => { }}
                 importSettingsFromClipboard={() => { }}
                 importSettingsFromFile={() => { }}
+                saveReproBundle={() => { }}
+                loadReproBundle={() => { }}
                 setIsOpen={() => { }}
                 fps={61.7}
                 pups={123456}
@@ -59,6 +61,8 @@ describe('OverlayMenu', () => {
                 downloadSettings={() => { }}
                 importSettingsFromClipboard={() => { }}
                 importSettingsFromFile={() => { }}
+                saveReproBundle={() => { }}
+                loadReproBundle={() => { }}
                 setIsOpen={() => { }}
                 fps={60}
                 pups={1000}

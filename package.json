@@ -9,7 +9,8 @@
     "serve": "node server.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "tsc": "tsc --noEmit --watch"
+    "tsc": "tsc --noEmit --watch",
+    "capture:repro": "node scripts/captureReproBundle.cjs"
   },
   "dependencies": {
     "@testing-library/dom": "^10.4.0",
@@ -43,5 +44,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
   }
 }

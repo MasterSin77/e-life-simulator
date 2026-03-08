@@ -25,6 +25,26 @@ e-Life is an experimental real-time sandbox for emergent structures driven by Co
   - Shader logic updates in `computeLife.frag`
   - Conway menu sliders in the UI
 - Added/updated tests for control sanitization and Conway parameter normalization.
+- Added reproducibility bundle flow:
+  - `Save Repro Bundle` exports exact frame state + settings + screenshot.
+  - `Load Repro Bundle` restores state, controls, and draggable object locations.
+
+## Reproducible showcase
+
+This repository now includes a captured scene that can be recreated from GitHub assets.
+
+![e-Life reproducible scene](docs/repro/readme-repro-screenshot.png)
+
+- Repro bundle (exact frame state + settings + screenshot): `docs/repro/readme-repro-bundle.json`
+- Settings-only export (all menu values + draggable object positions): `docs/repro/readme-settings.json`
+- Screenshot asset: `docs/repro/readme-repro-screenshot.png`
+
+### Recreate the exact scene from GitHub
+
+1. Start the app with `npm start`.
+2. Open either menu and click **Load Repro Bundle**.
+3. Select `docs/repro/readme-repro-bundle.json`.
+4. The simulator restores controls, object locations, and GPU state to match the screenshot.
 
 ## Important simulation notes
 
@@ -66,6 +86,21 @@ Serves the production build via `server.js`.
 ```bash
 npm test -- --watch=false
 ```
+
+### Generate new README repro assets
+
+1. Run `npm start`.
+2. In another terminal, run:
+
+```bash
+npm run capture:repro
+```
+
+This refreshes:
+
+- `docs/repro/readme-repro-bundle.json`
+- `docs/repro/readme-settings.json`
+- `docs/repro/readme-repro-screenshot.png`
 
 ## Key files
 

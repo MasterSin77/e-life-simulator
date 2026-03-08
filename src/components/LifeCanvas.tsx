@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { startLifeEngine, LifeEngineHandle } from '../webgl/lifeEngine';
+import { LifeEngineHandle, LifeEngineSnapshot, startLifeEngine } from '../webgl/lifeEngine';
 import { ObjectiveMetrics, SimulationControls } from '../webgl/simulationTypes';
 
 interface LifeCanvasProps {
@@ -9,6 +9,17 @@ interface LifeCanvasProps {
     controls: SimulationControls;
     onControlsChange: (partial: Partial<SimulationControls>) => void;
     handleOpacity: number;
+}
+
+interface CaptureReproDetail {
+    resolve: (value: { snapshot: LifeEngineSnapshot; screenshotDataUrl: string }) => void;
+    reject: (reason?: unknown) => void;
+}
+
+interface LoadReproDetail {
+    snapshot: LifeEngineSnapshot;
+    resolve?: () => void;
+    reject?: (reason?: unknown) => void;
 }
 
 export default function LifeCanvas({
@@ -140,12 +151,41 @@ export default function LifeCanvas({
             engineRef.current?.randomize(controlsRef.current.seedDensity);
         };
 
+        const handleCaptureReproBundle = (event: Event) => {
+            const customEvent = event as CustomEvent<CaptureReproDetail>;
+            try {
+                if (!engineRef.current) {
+                    throw new Error('Simulation engine is not ready.');
+                }
+                const snapshot = engineRef.current.captureSnapshot();
+                const screenshotDataUrl = canvas.toDataURL('image/png');
+                customEvent.detail?.resolve({ snapshot, screenshotDataUrl });
+            } catch (error) {
+                customEvent.detail?.reject(error);
+            }
+        };
+
+        const handleLoadReproBundle = (event: Event) => {
+            const customEvent = event as CustomEvent<LoadReproDetail>;
+            try {
+                if (!engineRef.current) {
+                    throw new Error('Simulation engine is not ready.');
+                }
+                engineRef.current.restoreSnapshot(customEvent.detail.snapshot);
+                customEvent.detail?.resolve?.();
+            } catch (error) {
+                customEvent.detail?.reject?.(error);
+            }
+        };
+
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mouseup', handleMouseUp);
         window.addEventListener('resize', handleResize);
         canvas.addEventListener('wheel', handleWheel, { passive: false });
         window.addEventListener('resetZoom', handleResetZoom);
         window.addEventListener('resetSimulation', handleResetSimulation);
+        window.addEventListener('captureReproBundle', handleCaptureReproBundle);
+        window.addEventListener('loadReproBundle', handleLoadReproBundle);
 
         const updateOffset = () => {
             offsetRef.current = { x: 0, y: 0 };
@@ -164,6 +204,8 @@ export default function LifeCanvas({
             canvas.removeEventListener('wheel', handleWheel);
             window.removeEventListener('resetZoom', handleResetZoom);
             window.removeEventListener('resetSimulation', handleResetSimulation);
+            window.removeEventListener('captureReproBundle', handleCaptureReproBundle);
+            window.removeEventListener('loadReproBundle', handleLoadReproBundle);
         };
     }, [setFps, setPups, setObjectiveMetrics]);
 

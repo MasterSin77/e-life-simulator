@@ -19,6 +19,8 @@ interface OverlayMenuProps {
   downloadSettings: () => void;
   importSettingsFromClipboard: () => void;
   importSettingsFromFile: () => void;
+  saveReproBundle: () => void;
+  loadReproBundle: () => void;
   setIsOpen: (value: boolean) => void;
   fps: number;
   pups: number;
@@ -43,6 +45,8 @@ const OverlayMenu: React.FC<OverlayMenuProps> = ({
   downloadSettings,
   importSettingsFromClipboard,
   importSettingsFromFile,
+  saveReproBundle,
+  loadReproBundle,
   setIsOpen,
   fps,
   pups,
@@ -365,6 +369,12 @@ const OverlayMenu: React.FC<OverlayMenuProps> = ({
           </button>
           <button onClick={importSettingsFromFile} className="panel-btn panel-btn-primary">
             Import File
+          </button>
+          <button onClick={saveReproBundle} className="panel-btn panel-btn-secondary">
+            Save Repro Bundle
+          </button>
+          <button onClick={loadReproBundle} className="panel-btn panel-btn-primary">
+            Load Repro Bundle
           </button>
         </div>
       </div>

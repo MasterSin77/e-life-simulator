@@ -7,9 +7,46 @@ import {
   sanitizeSimulationControls,
   SimulationControls,
 } from './webgl/simulationTypes';
+import { LifeEngineSnapshot } from './webgl/lifeEngine';
 
 const SETTINGS_SCHEMA = 'e-life-controls-v1';
 const SETTINGS_FILENAME = 'e-life-controls.json';
+const REPRO_SCHEMA = 'e-life-repro-v1';
+
+interface SerializedSnapshot {
+  width: number;
+  height: number;
+  stateBase64: string;
+  forceBase64: string;
+  velocityBase64: string;
+  wellsBase64: string;
+}
+
+interface ReproBundle {
+  schema: string;
+  exportedAt: string;
+  controls: SimulationControls;
+  handleOpacity: number;
+  screenshotDataUrl: string;
+  snapshot: SerializedSnapshot;
+}
+
+const uint8ToBase64 = (data: Uint8Array) => {
+  let binary = '';
+  for (let i = 0; i < data.length; i += 1) {
+    binary += String.fromCharCode(data[i]);
+  }
+  return btoa(binary);
+};
+
+const base64ToUint8 = (encoded: string) => {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+};
 
 const App: React.FC = () => {
   const initialControls = useMemo<SimulationControls>(() => {
@@ -133,6 +170,107 @@ const App: React.FC = () => {
     input.click();
   };
 
+  const captureReproBundle = async () => {
+    const captured = await new Promise<{ snapshot: LifeEngineSnapshot; screenshotDataUrl: string }>((resolve, reject) => {
+      window.dispatchEvent(new CustomEvent('captureReproBundle', {
+        detail: {
+          resolve,
+          reject,
+        },
+      }));
+    });
+
+    const payload: ReproBundle = {
+      schema: REPRO_SCHEMA,
+      exportedAt: new Date().toISOString(),
+      controls,
+      handleOpacity,
+      screenshotDataUrl: captured.screenshotDataUrl,
+      snapshot: {
+        width: captured.snapshot.width,
+        height: captured.snapshot.height,
+        stateBase64: uint8ToBase64(captured.snapshot.state),
+        forceBase64: uint8ToBase64(captured.snapshot.force),
+        velocityBase64: uint8ToBase64(captured.snapshot.velocity),
+        wellsBase64: uint8ToBase64(captured.snapshot.wells),
+      },
+    };
+
+    return payload;
+  };
+
+  const downloadFile = (filename: string, blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const saveReproBundle = async () => {
+    const bundle = await captureReproBundle();
+    const stamp = bundle.exportedAt.replace(/[:.]/g, '-');
+    const baseName = `e-life-repro-${stamp}`;
+
+    downloadFile(
+      `${baseName}.json`,
+      new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+    );
+
+    const response = await fetch(bundle.screenshotDataUrl);
+    const imageBlob = await response.blob();
+    downloadFile(`${baseName}.png`, imageBlob);
+  };
+
+  const loadReproBundle = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      try {
+        const file = input.files?.[0];
+        if (!file) return;
+        const raw = await file.text();
+        const parsed = JSON.parse(raw) as ReproBundle;
+        if (parsed.schema !== REPRO_SCHEMA || !parsed.snapshot) {
+          throw new Error('Invalid repro bundle file.');
+        }
+
+        const nextControls = sanitizeSimulationControls(parsed.controls ?? defaultSimulationControls);
+        setControls(nextControls);
+        if (typeof parsed.handleOpacity === 'number') {
+          setHandleOpacity(Math.min(1, Math.max(0, parsed.handleOpacity)));
+        }
+
+        const snapshot: LifeEngineSnapshot = {
+          width: parsed.snapshot.width,
+          height: parsed.snapshot.height,
+          state: base64ToUint8(parsed.snapshot.stateBase64),
+          force: base64ToUint8(parsed.snapshot.forceBase64),
+          velocity: base64ToUint8(parsed.snapshot.velocityBase64),
+          wells: base64ToUint8(parsed.snapshot.wellsBase64),
+        };
+
+        await new Promise<void>((resolve, reject) => {
+          window.dispatchEvent(new CustomEvent('loadReproBundle', {
+            detail: {
+              snapshot,
+              resolve,
+              reject,
+            },
+          }));
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load repro bundle.';
+        window.alert(message);
+      }
+    };
+    input.click();
+  };
+
   return (
     <div style={{
       width: '100vw',
@@ -161,6 +299,8 @@ const App: React.FC = () => {
         downloadSettings={downloadSettings}
         importSettingsFromClipboard={importSettingsFromClipboard}
         importSettingsFromFile={importSettingsFromFile}
+        saveReproBundle={saveReproBundle}
+        loadReproBundle={loadReproBundle}
         setIsOpen={setHolesMenuOpen}
         fps={fps}
         pups={pups}
@@ -183,6 +323,8 @@ const App: React.FC = () => {
         downloadSettings={downloadSettings}
         importSettingsFromClipboard={importSettingsFromClipboard}
         importSettingsFromFile={importSettingsFromFile}
+        saveReproBundle={saveReproBundle}
+        loadReproBundle={loadReproBundle}
         setIsOpen={setConwayMenuOpen}
         fps={fps}
         pups={pups}
