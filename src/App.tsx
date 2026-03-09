@@ -1,17 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LifeCanvas from './components/LifeCanvas';
 import OverlayMenu from './components/OverlayMenu';
 import {
   defaultSimulationControls,
+  MAX_BLACK_HOLES,
   ObjectiveMetrics,
   sanitizeSimulationControls,
   SimulationControls,
 } from './webgl/simulationTypes';
 import { LifeEngineSnapshot } from './webgl/lifeEngine';
+import {
+  extractControlsFromPayload,
+  PersistedControls,
+  toPersistedControls,
+} from './utils/persistence';
 
 const SETTINGS_SCHEMA = 'e-life-controls-v1';
 const SETTINGS_FILENAME = 'e-life-controls.json';
 const REPRO_SCHEMA = 'e-life-repro-v1';
+const AUTO_ADD_MIN_FPS = 60;
+const AUTO_ADD_INTERVAL_MS = 900;
+const PERSIST_WRITE_INTERVAL_MS = 750;
 
 interface SerializedSnapshot {
   width: number;
@@ -25,7 +34,7 @@ interface SerializedSnapshot {
 interface ReproBundle {
   schema: string;
   exportedAt: string;
-  controls: SimulationControls;
+  controls: PersistedControls | Partial<SimulationControls>;
   handleOpacity: number;
   snapshot: SerializedSnapshot;
 }
@@ -33,9 +42,53 @@ interface ReproBundle {
 interface ReproSettingsOnly {
   schema: string;
   exportedAt: string;
-  controls: SimulationControls;
+  controls: PersistedControls;
   handleOpacity: number;
 }
+
+type HoleKind = 'black' | 'black2' | 'black3' | 'white';
+
+interface SetHoleDynamicsDetail {
+  velocities?: Partial<Record<HoleKind, { x: number; y: number }>>;
+  depths?: Partial<Record<HoleKind, { d: number; vd: number }>>;
+}
+
+const withSyncedLegacyBlackHoleFields = (
+  partial: Partial<SimulationControls>
+): Partial<SimulationControls> => {
+  if (!partial.blackHoles) {
+    return partial;
+  }
+
+  const [b1, b2, b3] = partial.blackHoles;
+  const synced: Partial<SimulationControls> = { ...partial };
+
+  if (b1) {
+    synced.blackHoleEnabled = b1.enabled;
+    synced.blackHoleMass = b1.mass;
+    synced.blackHoleX = b1.x;
+    synced.blackHoleY = b1.y;
+    synced.blackHoleSpin = b1.spin;
+  }
+
+  if (b2) {
+    synced.blackHole2Enabled = b2.enabled;
+    synced.blackHole2Mass = b2.mass;
+    synced.blackHole2X = b2.x;
+    synced.blackHole2Y = b2.y;
+    synced.blackHole2Spin = b2.spin;
+  }
+
+  if (b3) {
+    synced.blackHole3Enabled = b3.enabled;
+    synced.blackHole3Mass = b3.mass;
+    synced.blackHole3X = b3.x;
+    synced.blackHole3Y = b3.y;
+    synced.blackHole3Spin = b3.spin;
+  }
+
+  return synced;
+};
 
 const uint8ToBase64 = (data: Uint8Array) => {
   let binary = '';
@@ -82,9 +135,9 @@ const App: React.FC = () => {
     try {
       const raw = localStorage.getItem(SETTINGS_SCHEMA);
       if (!raw) return defaultSimulationControls;
-      const parsed = JSON.parse(raw) as { schema?: string; controls?: Partial<SimulationControls> };
-      const source = parsed?.controls ?? parsed;
-      return sanitizeSimulationControls({ ...defaultSimulationControls, ...(source as Partial<SimulationControls>) });
+      const parsed = JSON.parse(raw);
+      const source = extractControlsFromPayload(parsed);
+      return sanitizeSimulationControls(source as Partial<SimulationControls>);
     } catch {
       return defaultSimulationControls;
     }
@@ -102,6 +155,9 @@ const App: React.FC = () => {
     avgVelocity: 0,
     objectiveScore: 0,
   });
+  const fpsRef = useRef(0);
+  const persistWriteTimerRef = useRef<number | null>(null);
+  const pendingPersistPayloadRef = useRef<string | null>(null);
 
   const toggleHolesOpen = () => setHolesMenuOpen(!holesMenuOpen);
   const toggleConwayOpen = () => setConwayMenuOpen(!conwayMenuOpen);
@@ -114,19 +170,189 @@ const App: React.FC = () => {
     window.dispatchEvent(new CustomEvent('resetSimulation'));
   };
 
+  const applyThreeBodyPreset = useCallback(() => {
+    const figureEightPositions = {
+      black: { x: -0.97000436, y: 0.24308753 },
+      black2: { x: 0.97000436, y: -0.24308753 },
+      black3: { x: 0, y: 0 },
+    };
+
+    const figureEightVelocities = {
+      black: { x: 0.466203685, y: 0.43236573 },
+      black2: { x: 0.466203685, y: 0.43236573 },
+      black3: { x: -0.93240737, y: -0.86473146 },
+    };
+
+    const center = 0.5;
+    const positionScale = 0.16;
+    const velocityScale = 0.22;
+
+    const nextControls = sanitizeSimulationControls({
+      ...defaultSimulationControls,
+      paused: false,
+      gravityStrength: 0.98,
+      gravitySoftening: 0.35,
+      eventHorizonRadius: 0.008,
+      driftDamping: 1,
+      blackHoleEnabled: true,
+      blackHole2Enabled: true,
+      blackHole3Enabled: true,
+      blackHoleMass: 1.2,
+      blackHole2Mass: 1.2,
+      blackHole3Mass: 1.2,
+      blackHoleSpin: 0,
+      blackHole2Spin: 0,
+      blackHole3Spin: 0,
+      blackHoleX: center + figureEightPositions.black.x * positionScale,
+      blackHoleY: center + figureEightPositions.black.y * positionScale,
+      blackHole2X: center + figureEightPositions.black2.x * positionScale,
+      blackHole2Y: center + figureEightPositions.black2.y * positionScale,
+      blackHole3X: center + figureEightPositions.black3.x * positionScale,
+      blackHole3Y: center + figureEightPositions.black3.y * positionScale,
+      whiteHoleEnabled: false,
+      whiteHoleMass: 0,
+      whiteHoleEmission: 0,
+      whiteHoleRadius: 0.02,
+      showGravityField: true,
+      wellGlowDensity: 0.55,
+      wellGlowDistance: 0.45,
+      spectralRenderingEnabled: true,
+      spectralShiftStrength: 0.9,
+      spectralSpeedReference: 0.45,
+      seedDensity: 0.04,
+      lifeUpdateRate: 0.62,
+      advectionStrength: 3.5,
+      holeBrownianStrength: 0.18,
+      holeRearrangeBurst: 0.14,
+      holeSeparationForce: 0.72,
+      holeWeakAttraction: 0.58,
+      holePreferredSpacing: 0.14,
+      holeOrbitCoupling: 0.44,
+      holeDepthSeparation: 0.72,
+      holeEnergyFloor: 0.35,
+    });
+
+    setControls(nextControls);
+
+    const dynamicsDetail: SetHoleDynamicsDetail = {
+      velocities: {
+        black: {
+          x: figureEightVelocities.black.x * velocityScale,
+          y: figureEightVelocities.black.y * velocityScale,
+        },
+        black2: {
+          x: figureEightVelocities.black2.x * velocityScale,
+          y: figureEightVelocities.black2.y * velocityScale,
+        },
+        black3: {
+          x: figureEightVelocities.black3.x * velocityScale,
+          y: figureEightVelocities.black3.y * velocityScale,
+        },
+        white: { x: 0, y: 0 },
+      },
+      depths: {
+        black: { d: 0.5, vd: 0 },
+        black2: { d: 0.5, vd: 0 },
+        black3: { d: 0.5, vd: 0 },
+        white: { d: 0.5, vd: 0 },
+      },
+    };
+
+    window.dispatchEvent(new CustomEvent('setHoleDynamicsState', { detail: dynamicsDetail }));
+    resetZoom();
+    resetSimulation();
+  }, []);
+
   const updateControls = useCallback((partial: Partial<SimulationControls>) => {
-    setControls((prev) => sanitizeSimulationControls({ ...prev, ...partial }));
+    const nextPartial = withSyncedLegacyBlackHoleFields(partial);
+    setControls((prev) => sanitizeSimulationControls({ ...prev, ...nextPartial }));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(SETTINGS_SCHEMA, JSON.stringify({
+    fpsRef.current = fps;
+  }, [fps]);
+
+  useEffect(() => {
+    pendingPersistPayloadRef.current = JSON.stringify({
       schema: SETTINGS_SCHEMA,
-      controls,
-    }));
+      controls: toPersistedControls(controls),
+    });
+
+    if (persistWriteTimerRef.current !== null) {
+      return;
+    }
+
+    // localStorage writes are synchronous; batch them to avoid frame hitches.
+    persistWriteTimerRef.current = window.setTimeout(() => {
+      const payload = pendingPersistPayloadRef.current;
+      if (payload) {
+        localStorage.setItem(SETTINGS_SCHEMA, payload);
+      }
+      pendingPersistPayloadRef.current = null;
+      persistWriteTimerRef.current = null;
+    }, PERSIST_WRITE_INTERVAL_MS);
   }, [controls]);
 
+  useEffect(() => {
+    return () => {
+      if (persistWriteTimerRef.current !== null) {
+        window.clearTimeout(persistWriteTimerRef.current);
+      }
+      const payload = pendingPersistPayloadRef.current;
+      if (payload) {
+        localStorage.setItem(SETTINGS_SCHEMA, payload);
+      }
+      pendingPersistPayloadRef.current = null;
+      persistWriteTimerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!controls.autoMaxBlackHoles) {
+      return;
+    }
+
+    const autoAddTick = () => {
+      setControls((prev) => {
+        if (!prev.autoMaxBlackHoles || prev.blackHoles.length >= MAX_BLACK_HOLES) {
+          return prev;
+        }
+        if (fpsRef.current < AUTO_ADD_MIN_FPS) {
+          return prev;
+        }
+
+        const index = prev.blackHoles.length;
+        const fallback = prev.blackHoles[Math.max(0, index - 1)] ?? {
+          enabled: true,
+          mass: 1,
+          x: 0.5,
+          y: 0.5,
+          spin: 0,
+        };
+        const offset = 0.07 * (index + 1);
+        const nextHole = {
+          enabled: true,
+          mass: fallback.mass,
+          x: (fallback.x + offset) % 1,
+          y: (fallback.y + offset * 0.5) % 1,
+          spin: fallback.spin,
+        };
+
+        return sanitizeSimulationControls({
+          ...prev,
+          blackHoles: [...prev.blackHoles, nextHole],
+        });
+      });
+    };
+
+    // Run an immediate probe so users see quick feedback after enabling.
+    autoAddTick();
+    const intervalId = window.setInterval(autoAddTick, AUTO_ADD_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [controls.autoMaxBlackHoles]);
+
   const applyImportedControls = (incoming: Partial<SimulationControls>) => {
-    const next = sanitizeSimulationControls({ ...defaultSimulationControls, ...incoming });
+    const next = sanitizeSimulationControls(incoming);
     setControls(next);
     resetZoom();
     resetSimulation();
@@ -135,7 +361,7 @@ const App: React.FC = () => {
   const exportPayload = () => JSON.stringify({
     schema: SETTINGS_SCHEMA,
     exportedAt: new Date().toISOString(),
-    controls,
+    controls: toPersistedControls(controls),
   }, null, 2);
 
   const copySettings = async () => {
@@ -169,8 +395,8 @@ const App: React.FC = () => {
   };
 
   const importFromPayload = (payload: string) => {
-    const parsed = JSON.parse(payload) as { controls?: Partial<SimulationControls> } | Partial<SimulationControls>;
-    const source = (parsed as { controls?: Partial<SimulationControls> }).controls ?? (parsed as Partial<SimulationControls>);
+    const parsed = JSON.parse(payload);
+    const source = extractControlsFromPayload(parsed);
     applyImportedControls(source);
   };
 
@@ -212,7 +438,7 @@ const App: React.FC = () => {
     const payload: ReproBundle = {
       schema: REPRO_SCHEMA,
       exportedAt: new Date().toISOString(),
-      controls,
+      controls: toPersistedControls(controls),
       handleOpacity,
       snapshot: {
         width: captured.snapshot.width,
@@ -249,7 +475,7 @@ const App: React.FC = () => {
       const settingsOnly: ReproSettingsOnly = {
         schema: SETTINGS_SCHEMA,
         exportedAt: bundle.exportedAt,
-        controls,
+        controls: toPersistedControls(controls),
         handleOpacity,
       };
 
@@ -289,7 +515,7 @@ const App: React.FC = () => {
           throw new Error('Invalid repro bundle file.');
         }
 
-        const nextControls = sanitizeSimulationControls(parsed.controls ?? defaultSimulationControls);
+        const nextControls = sanitizeSimulationControls(extractControlsFromPayload(parsed));
         setControls(nextControls);
         if (typeof parsed.handleOpacity === 'number') {
           setHandleOpacity(Math.min(1, Math.max(0, parsed.handleOpacity)));
@@ -351,6 +577,7 @@ const App: React.FC = () => {
         importSettingsFromFile={importSettingsFromFile}
         saveReproBundle={saveReproBundle}
         loadReproBundle={loadReproBundle}
+        applyThreeBodyPreset={applyThreeBodyPreset}
         setIsOpen={setHolesMenuOpen}
         fps={fps}
         pups={pups}
@@ -375,6 +602,7 @@ const App: React.FC = () => {
         importSettingsFromFile={importSettingsFromFile}
         saveReproBundle={saveReproBundle}
         loadReproBundle={loadReproBundle}
+        applyThreeBodyPreset={applyThreeBodyPreset}
         setIsOpen={setConwayMenuOpen}
         fps={fps}
         pups={pups}

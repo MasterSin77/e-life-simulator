@@ -31,16 +31,5 @@ void main() {
   vec2 vel = texture(u_velocity, v_uv).rg * 2.0 - 1.0;
   vec2 texelPos = v_uv * u_resolution;
   vec2 backtrace = texelPos - vel * u_advectionStrength;
-
-  if (
-    backtrace.x < 0.5 ||
-    backtrace.y < 0.5 ||
-    backtrace.x > u_resolution.x - 1.5 ||
-    backtrace.y > u_resolution.y - 1.5
-  ) {
-    outColor = vec4(0.0, 0.0, 0.0, 1.0);
-    return;
-  }
-
   outColor = sampleBilinear(u_prevState, backtrace);
 }

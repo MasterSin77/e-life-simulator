@@ -13,6 +13,21 @@ uniform vec2 u_whiteHolePosition;
 uniform float u_whiteHoleRadius;
 uniform float u_whiteHoleEmission;
 
+float wrapDelta1(float from, float to) {
+    float delta = to - from;
+    if (delta > 0.5) {
+        return delta - 1.0;
+    }
+    if (delta < -0.5) {
+        return delta + 1.0;
+    }
+    return delta;
+}
+
+vec2 wrapDelta2(vec2 from, vec2 to) {
+    return vec2(wrapDelta1(from.x, to.x), wrapDelta1(from.y, to.y));
+}
+
 void main() {
     vec2 vel = texture(u_prevState, v_uv).rg * 2.0 - 1.0;   // [-1,1]
     vec2 force = texture(u_forceField, v_uv).rg * 2.0 - 1.0;
@@ -25,7 +40,8 @@ void main() {
     vel *= pow(clamp(u_damping, 0.0, 1.0), frameFactor);
 
     float aspect = u_resolution.x / max(1.0, u_resolution.y);
-    vec2 deltaWHWorld = vec2((v_uv.x - u_whiteHolePosition.x) * aspect, v_uv.y - u_whiteHolePosition.y);
+    vec2 deltaWHUv = wrapDelta2(u_whiteHolePosition, v_uv);
+    vec2 deltaWHWorld = vec2(deltaWHUv.x * aspect, deltaWHUv.y);
     float rWH = max(length(deltaWHWorld), 1e-6);
     vec2 dirWHWorld = deltaWHWorld / rWH;
     vec2 dirWHUV = normalize(vec2(dirWHWorld.x / aspect, dirWHWorld.y));

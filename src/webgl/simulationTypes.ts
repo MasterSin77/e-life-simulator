@@ -1,14 +1,31 @@
+export interface BlackHoleControl {
+    enabled: boolean;
+    mass: number;
+    x: number;
+    y: number;
+    spin: number;
+}
+
 export interface SimulationControls {
     paused: boolean;
+    lifeEnabled: boolean;
     gravityStrength: number;
+    blackHoles: BlackHoleControl[];
+    blackHoleEnabled: boolean;
     blackHoleMass: number;
     blackHoleX: number;
     blackHoleY: number;
     blackHoleSpin: number;
+    blackHole2Enabled: boolean;
     blackHole2Mass: number;
     blackHole2X: number;
     blackHole2Y: number;
     blackHole2Spin: number;
+    blackHole3Enabled: boolean;
+    blackHole3Mass: number;
+    blackHole3X: number;
+    blackHole3Y: number;
+    blackHole3Spin: number;
     gravitySoftening: number;
     eventHorizonRadius: number;
     whiteHoleMass: number;
@@ -16,7 +33,15 @@ export interface SimulationControls {
     whiteHoleY: number;
     whiteHoleRadius: number;
     whiteHoleEmission: number;
+    whiteHoleEnabled: boolean;
     redshiftStrength: number;
+    spectralRenderingEnabled: boolean;
+    spectralShiftStrength: number;
+    spectralSpeedReference: number;
+    spectralViewAngle: number;
+    spectralHueOffset: number;
+    spectralHueSpan: number;
+    spectralSaturation: number;
     showGravityField: boolean;
     driftDamping: number;
     lifeUpdateRate: number;
@@ -31,6 +56,16 @@ export interface SimulationControls {
     seedDensity: number;
     wellGlowDensity: number;
     wellGlowDistance: number;
+    holeBrownianStrength: number;
+    holeRearrangeBurst: number;
+    holeSeparationForce: number;
+    holeWeakAttraction: number;
+    holePreferredSpacing: number;
+    holeOrbitCoupling: number;
+    holeDepthSeparation: number;
+    holeEnergyFloor: number;
+    holeCrowdingMomentum: number;
+    autoMaxBlackHoles: boolean;
 }
 
 export interface ObjectiveMetrics {
@@ -40,17 +75,71 @@ export interface ObjectiveMetrics {
     objectiveScore: number;
 }
 
+export const MAX_BLACK_HOLES = 16;
+
+const defaultBlackHoles: BlackHoleControl[] = [
+    {
+        enabled: true,
+        mass: 2.4,
+        x: 0.5,
+        y: 0.5,
+        spin: 0.25,
+    },
+    {
+        enabled: true,
+        mass: 1.1,
+        x: 0.72,
+        y: 0.34,
+        spin: -0.2,
+    },
+    {
+        enabled: true,
+        mass: 0.9,
+        x: 0.28,
+        y: 0.26,
+        spin: 0.12,
+    },
+];
+
+const hasOwn = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+
+const hasLegacyBlackHoleOverrides = (partial: Partial<SimulationControls>) =>
+    hasOwn(partial, 'blackHoleEnabled') ||
+    hasOwn(partial, 'blackHoleMass') ||
+    hasOwn(partial, 'blackHoleX') ||
+    hasOwn(partial, 'blackHoleY') ||
+    hasOwn(partial, 'blackHoleSpin') ||
+    hasOwn(partial, 'blackHole2Enabled') ||
+    hasOwn(partial, 'blackHole2Mass') ||
+    hasOwn(partial, 'blackHole2X') ||
+    hasOwn(partial, 'blackHole2Y') ||
+    hasOwn(partial, 'blackHole2Spin') ||
+    hasOwn(partial, 'blackHole3Enabled') ||
+    hasOwn(partial, 'blackHole3Mass') ||
+    hasOwn(partial, 'blackHole3X') ||
+    hasOwn(partial, 'blackHole3Y') ||
+    hasOwn(partial, 'blackHole3Spin');
+
 export const defaultSimulationControls: SimulationControls = {
     paused: false,
+    lifeEnabled: true,
     gravityStrength: 0.32,
+    blackHoles: defaultBlackHoles,
+    blackHoleEnabled: true,
     blackHoleMass: 2.4,
     blackHoleX: 0.5,
     blackHoleY: 0.5,
     blackHoleSpin: 0.25,
+    blackHole2Enabled: true,
     blackHole2Mass: 1.1,
     blackHole2X: 0.72,
     blackHole2Y: 0.34,
     blackHole2Spin: -0.2,
+    blackHole3Enabled: true,
+    blackHole3Mass: 0.9,
+    blackHole3X: 0.28,
+    blackHole3Y: 0.26,
+    blackHole3Spin: 0.12,
     gravitySoftening: 1.4,
     eventHorizonRadius: 0.018,
     whiteHoleMass: 1.35,
@@ -58,7 +147,15 @@ export const defaultSimulationControls: SimulationControls = {
     whiteHoleY: 0.78,
     whiteHoleRadius: 0.03,
     whiteHoleEmission: 0.08,
+    whiteHoleEnabled: false,
     redshiftStrength: 0.75,
+    spectralRenderingEnabled: true,
+    spectralShiftStrength: 1.15,
+    spectralSpeedReference: 0.4,
+    spectralViewAngle: 0,
+    spectralHueOffset: 0,
+    spectralHueSpan: 1,
+    spectralSaturation: 1,
     showGravityField: true,
     driftDamping: 0.98,
     lifeUpdateRate: 0.62,
@@ -73,37 +170,79 @@ export const defaultSimulationControls: SimulationControls = {
     seedDensity: 0.05,
     wellGlowDensity: 0.45,
     wellGlowDistance: 0.32,
+    holeBrownianStrength: 0.24,
+    holeRearrangeBurst: 0.22,
+    holeSeparationForce: 0.85,
+    holeWeakAttraction: 0.42,
+    holePreferredSpacing: 0.18,
+    holeOrbitCoupling: 0.34,
+    holeDepthSeparation: 0.62,
+    holeEnergyFloor: 0.42,
+    holeCrowdingMomentum: 0.68,
+    autoMaxBlackHoles: false,
 };
 
 const clamp = (value: number, min: number, max: number) =>
     Math.min(max, Math.max(min, value));
 
-const enforceBlackHoleSeparation = (controls: SimulationControls): SimulationControls => {
-    if (controls.blackHole2Mass <= 0.05) {
-        return controls;
+const sanitizeBlackHoleControl = (
+    partial: Partial<BlackHoleControl> | undefined,
+    fallback: BlackHoleControl
+): BlackHoleControl => ({
+    enabled: partial?.enabled ?? fallback.enabled,
+    mass: clamp(partial?.mass ?? fallback.mass, 0, 4),
+    x: clamp(partial?.x ?? fallback.x, 0, 1),
+    y: clamp(partial?.y ?? fallback.y, 0, 1),
+    spin: clamp(partial?.spin ?? fallback.spin, -1, 1),
+});
+
+const sanitizeBlackHoles = (partial: Partial<SimulationControls>): BlackHoleControl[] => {
+    const fromArray = Array.isArray(partial.blackHoles)
+        ? partial.blackHoles.slice(0, MAX_BLACK_HOLES)
+        : defaultBlackHoles;
+
+    const base = fromArray.length > 0
+        ? fromArray.map((hole, index) =>
+            sanitizeBlackHoleControl(hole, defaultBlackHoles[index] ?? defaultBlackHoles[0])
+        )
+        : defaultBlackHoles.map(hole => ({ ...hole }));
+
+    while (base.length < 1) {
+        base.push({ ...defaultBlackHoles[0] });
     }
 
-    const minSeparation = controls.eventHorizonRadius * 2.2;
-    const dx = controls.blackHole2X - controls.blackHoleX;
-    const dy = controls.blackHole2Y - controls.blackHoleY;
-    const distance = Math.hypot(dx, dy);
+    if (hasLegacyBlackHoleOverrides(partial)) {
+        base[0] = sanitizeBlackHoleControl({
+            enabled: partial.blackHoleEnabled,
+            mass: partial.blackHoleMass,
+            x: partial.blackHoleX,
+            y: partial.blackHoleY,
+            spin: partial.blackHoleSpin,
+        }, base[0]);
 
-    if (distance >= minSeparation) {
-        return controls;
+        base[1] = sanitizeBlackHoleControl({
+            enabled: partial.blackHole2Enabled,
+            mass: partial.blackHole2Mass,
+            x: partial.blackHole2X,
+            y: partial.blackHole2Y,
+            spin: partial.blackHole2Spin,
+        }, base[1]);
+
+        base[2] = sanitizeBlackHoleControl({
+            enabled: partial.blackHole3Enabled,
+            mass: partial.blackHole3Mass,
+            x: partial.blackHole3X,
+            y: partial.blackHole3Y,
+            spin: partial.blackHole3Spin,
+        }, base[2]);
     }
 
-    const inv = distance > 1e-6 ? 1 / distance : 0;
-    const dirX = distance > 1e-6 ? dx * inv : 0.8660254;
-    const dirY = distance > 1e-6 ? dy * inv : 0.5;
+    const enabledHoles = base.filter((hole) => hole.enabled);
+    if (enabledHoles.length > 0) {
+        return enabledHoles;
+    }
 
-    const separatedX = clamp(controls.blackHoleX + dirX * minSeparation, 0, 1);
-    const separatedY = clamp(controls.blackHoleY + dirY * minSeparation, 0, 1);
-
-    return {
-        ...controls,
-        blackHole2X: separatedX,
-        blackHole2Y: separatedY,
-    };
+    return [{ ...defaultBlackHoles[0], enabled: true }];
 };
 
 export function sanitizeSimulationControls(
@@ -130,50 +269,88 @@ export function sanitizeSimulationControls(
         8
     );
 
+    const blackHoles = sanitizeBlackHoles(partial);
+    const black1 = blackHoles[0] ?? defaultBlackHoles[0];
+    const black2 = blackHoles[1] ?? {
+        ...defaultBlackHoles[1],
+        enabled: false,
+        mass: 0,
+    };
+    const black3 = blackHoles[2] ?? {
+        ...defaultBlackHoles[2],
+        enabled: false,
+        mass: 0,
+    };
+
     const sanitized: SimulationControls = {
         paused: partial.paused ?? defaultSimulationControls.paused,
+        lifeEnabled: partial.lifeEnabled ?? defaultSimulationControls.lifeEnabled,
         gravityStrength: clamp(
             partial.gravityStrength ?? defaultSimulationControls.gravityStrength,
             0,
             1
         ),
+        blackHoles,
+        blackHoleEnabled: black1.enabled,
         blackHoleMass: clamp(
-            partial.blackHoleMass ?? defaultSimulationControls.blackHoleMass,
+            black1.mass,
             0.1,
             4
         ),
         blackHoleX: clamp(
-            partial.blackHoleX ?? defaultSimulationControls.blackHoleX,
+            black1.x,
             0,
             1
         ),
         blackHoleY: clamp(
-            partial.blackHoleY ?? defaultSimulationControls.blackHoleY,
+            black1.y,
             0,
             1
         ),
         blackHoleSpin: clamp(
-            partial.blackHoleSpin ?? defaultSimulationControls.blackHoleSpin,
+            black1.spin,
             -1,
             1
         ),
+        blackHole2Enabled: black2.enabled,
         blackHole2Mass: clamp(
-            partial.blackHole2Mass ?? defaultSimulationControls.blackHole2Mass,
+            black2.mass,
             0,
             4
         ),
         blackHole2X: clamp(
-            partial.blackHole2X ?? defaultSimulationControls.blackHole2X,
+            black2.x,
             0,
             1
         ),
         blackHole2Y: clamp(
-            partial.blackHole2Y ?? defaultSimulationControls.blackHole2Y,
+            black2.y,
             0,
             1
         ),
         blackHole2Spin: clamp(
-            partial.blackHole2Spin ?? defaultSimulationControls.blackHole2Spin,
+            black2.spin,
+            -1,
+            1
+        ),
+        blackHole3Enabled: black3.enabled,
+        blackHole3Mass: clamp(
+            black3.mass,
+            0,
+            4
+        ),
+        blackHole3X: clamp(
+            black3.x,
+            0,
+            1
+        ),
+        blackHole3Y: clamp(
+            black3.y,
+            0,
+            1
+        ),
+        blackHole3Spin: clamp(
+            black3.spin,
             -1,
             1
         ),
@@ -212,10 +389,43 @@ export function sanitizeSimulationControls(
             0,
             0.4
         ),
+        whiteHoleEnabled: partial.whiteHoleEnabled ?? defaultSimulationControls.whiteHoleEnabled,
         redshiftStrength: clamp(
             partial.redshiftStrength ?? defaultSimulationControls.redshiftStrength,
             0,
             1.5
+        ),
+        spectralRenderingEnabled:
+            partial.spectralRenderingEnabled ?? defaultSimulationControls.spectralRenderingEnabled,
+        spectralShiftStrength: clamp(
+            partial.spectralShiftStrength ?? defaultSimulationControls.spectralShiftStrength,
+            0,
+            3
+        ),
+        spectralSpeedReference: clamp(
+            partial.spectralSpeedReference ?? defaultSimulationControls.spectralSpeedReference,
+            0.05,
+            1
+        ),
+        spectralViewAngle: clamp(
+            partial.spectralViewAngle ?? defaultSimulationControls.spectralViewAngle,
+            0,
+            360
+        ),
+        spectralHueOffset: clamp(
+            partial.spectralHueOffset ?? defaultSimulationControls.spectralHueOffset,
+            0,
+            1
+        ),
+        spectralHueSpan: clamp(
+            partial.spectralHueSpan ?? defaultSimulationControls.spectralHueSpan,
+            0.05,
+            1
+        ),
+        spectralSaturation: clamp(
+            partial.spectralSaturation ?? defaultSimulationControls.spectralSaturation,
+            0,
+            1
         ),
         showGravityField: partial.showGravityField ?? defaultSimulationControls.showGravityField,
         driftDamping: clamp(
@@ -267,7 +477,54 @@ export function sanitizeSimulationControls(
             0,
             1
         ),
+        holeBrownianStrength: clamp(
+            partial.holeBrownianStrength ?? defaultSimulationControls.holeBrownianStrength,
+            0,
+            1
+        ),
+        holeRearrangeBurst: clamp(
+            partial.holeRearrangeBurst ?? defaultSimulationControls.holeRearrangeBurst,
+            0,
+            2
+        ),
+        holeSeparationForce: clamp(
+            partial.holeSeparationForce ?? defaultSimulationControls.holeSeparationForce,
+            0,
+            2
+        ),
+        holeWeakAttraction: clamp(
+            partial.holeWeakAttraction ?? defaultSimulationControls.holeWeakAttraction,
+            0,
+            2
+        ),
+        holePreferredSpacing: clamp(
+            partial.holePreferredSpacing ?? defaultSimulationControls.holePreferredSpacing,
+            0.02,
+            0.45
+        ),
+        holeOrbitCoupling: clamp(
+            partial.holeOrbitCoupling ?? defaultSimulationControls.holeOrbitCoupling,
+            0,
+            2
+        ),
+        holeDepthSeparation: clamp(
+            partial.holeDepthSeparation ?? defaultSimulationControls.holeDepthSeparation,
+            0,
+            2
+        ),
+        holeEnergyFloor: clamp(
+            partial.holeEnergyFloor ?? defaultSimulationControls.holeEnergyFloor,
+            0,
+            1
+        ),
+        holeCrowdingMomentum: clamp(
+            partial.holeCrowdingMomentum ?? defaultSimulationControls.holeCrowdingMomentum,
+            0,
+            2
+        ),
+        autoMaxBlackHoles:
+            partial.autoMaxBlackHoles ?? defaultSimulationControls.autoMaxBlackHoles,
     };
 
-    return enforceBlackHoleSeparation(sanitized);
+    return sanitized;
 }

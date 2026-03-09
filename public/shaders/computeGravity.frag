@@ -7,12 +7,9 @@ uniform sampler2D u_inputDensity;
 uniform sampler2D u_wells;
 uniform vec2 u_resolution;
 uniform float u_gravityStrength;
-uniform float u_blackHoleMass;
-uniform vec2 u_blackHolePosition;
-uniform float u_blackHoleSpin;
-uniform float u_blackHole2Mass;
-uniform vec2 u_blackHole2Position;
-uniform float u_blackHole2Spin;
+uniform int u_numBlackHoles;
+uniform vec4 u_blackHolesData[16];
+uniform float u_blackHolesEnabled[16];
 uniform float u_gravitySoftening;
 uniform float u_eventHorizonRadius;
 uniform float u_whiteHoleMass;
@@ -20,70 +17,112 @@ uniform float u_whiteHoleRadius;
 uniform vec2 u_whiteHolePosition;
 uniform float u_time;
 
+vec2 accumulateBlackHoleField(
+  vec2 hole,
+  float mass,
+  float spin,
+  float aspect,
+  float horizonBoost,
+  float particleMass,
+  float horizon,
+  float soft,
+  float spinScale
+) {
+  vec2 accum = vec2(0.0);
+  for (int iy = -1; iy <= 1; iy++) {
+    for (int ix = -1; ix <= 1; ix++) {
+      vec2 imageHole = hole + vec2(float(ix), float(iy));
+      vec2 deltaWorld = vec2((imageHole.x - v_uv.x) * aspect, imageHole.y - v_uv.y);
+      float r = max(length(deltaWorld), 1e-5);
+      vec2 dirWorld = deltaWorld / r;
+      vec2 dirUV = normalize(vec2(dirWorld.x / aspect, dirWorld.y));
+      vec2 tanUV = vec2(-dirUV.y, dirUV.x);
+
+      float denom = r * r + soft * soft;
+      float accel = (mass * horizonBoost / denom) / particleMass;
+      float dampingNearCore = smoothstep(horizon * 0.2, horizon, r);
+      float drag = spin * mass / max(soft * soft + r * r * r, 1e-4);
+
+      accum += dirUV * accel * dampingNearCore;
+      accum += tanUV * drag * dampingNearCore * spinScale;
+    }
+  }
+  return accum;
+}
+
+vec2 accumulateWhiteHoleField(
+  vec2 whiteHole,
+  float whiteMass,
+  float whiteRadius,
+  float aspect,
+  float particleMass,
+  float soft
+) {
+  vec2 accum = vec2(0.0);
+  for (int iy = -1; iy <= 1; iy++) {
+    for (int ix = -1; ix <= 1; ix++) {
+      vec2 imageHole = whiteHole + vec2(float(ix), float(iy));
+      vec2 deltaWorld = vec2((v_uv.x - imageHole.x) * aspect, v_uv.y - imageHole.y);
+      float r = max(length(deltaWorld), 1e-5);
+      vec2 dirWorld = deltaWorld / r;
+      vec2 dirUV = normalize(vec2(dirWorld.x / aspect, dirWorld.y));
+
+      float denom = r * r + soft * soft;
+      float whiteCore = smoothstep(whiteRadius * 2.4, whiteRadius * 0.4, r);
+      float accel = (whiteMass * whiteCore / denom) / particleMass;
+      accum += dirUV * accel;
+    }
+  }
+  return accum;
+}
+
 void main() {
   float aspect = u_resolution.x / u_resolution.y;
-  vec2 blackHole = u_blackHolePosition;
-  vec2 blackHole2 = u_blackHole2Position;
-  vec2 whiteHole = u_whiteHolePosition;
-
-  vec2 deltaBHWorld = vec2((blackHole.x - v_uv.x) * aspect, blackHole.y - v_uv.y);
-  float rBH = max(length(deltaBHWorld), 1e-5);
-  vec2 dirBHWorld = deltaBHWorld / rBH;
-  vec2 dirBHUV = normalize(vec2(dirBHWorld.x / aspect, dirBHWorld.y));
-  vec2 tanBHUV = vec2(-dirBHUV.y, dirBHUV.x);
-
-  vec2 deltaWHWorld = vec2((v_uv.x - whiteHole.x) * aspect, v_uv.y - whiteHole.y);
-  float rWH = max(length(deltaWHWorld), 1e-5);
-  vec2 dirWHWorld = deltaWHWorld / rWH;
-  vec2 dirWHUV = normalize(vec2(dirWHWorld.x / aspect, dirWHWorld.y));
-
-  vec2 deltaBH2World = vec2((blackHole2.x - v_uv.x) * aspect, blackHole2.y - v_uv.y);
-  float rBH2 = max(length(deltaBH2World), 1e-5);
-  vec2 dirBH2World = deltaBH2World / rBH2;
-  vec2 dirBH2UV = normalize(vec2(dirBH2World.x / aspect, dirBH2World.y));
-  vec2 tanBH2UV = vec2(-dirBH2UV.y, dirBH2UV.x);
 
   float soft = max(0.001, u_gravitySoftening * 0.01);
-  float denomBH = rBH * rBH + soft * soft;
-  float denomBH2 = rBH2 * rBH2 + soft * soft;
-  float denomWH = rWH * rWH + soft * soft;
 
   float well = texture(u_wells, v_uv).r;
   float density = texture(u_inputDensity, v_uv).r;
   float particleMass = 0.35 + density * 2.4;
   float horizonBoost = 1.0 + well * 0.6;
-
-  float accelBH = (u_blackHoleMass * horizonBoost / denomBH) / particleMass;
-  float accelBH2 = (u_blackHole2Mass * horizonBoost / denomBH2) / particleMass;
-  float whiteCore = smoothstep(u_whiteHoleRadius * 2.4, u_whiteHoleRadius * 0.4, rWH);
-  float accelWH = (u_whiteHoleMass * whiteCore / denomWH) / particleMass;
-
   float horizon = max(0.001, u_eventHorizonRadius);
-  float dampingNearCore = smoothstep(horizon * 0.2, horizon, rBH);
-  float dampingNearCore2 = smoothstep(horizon * 0.2, horizon, rBH2);
-
   float spinScale = 0.11;
-  float dragBH = u_blackHoleSpin * u_blackHoleMass / max(soft * soft + rBH * rBH * rBH, 1e-4);
-  float dragBH2 = u_blackHole2Spin * u_blackHole2Mass / max(soft * soft + rBH2 * rBH2 * rBH2, 1e-4);
 
-  float r12 = max(length(vec2((blackHole2.x - blackHole.x) * aspect, blackHole2.y - blackHole.y)), 1e-5);
-  vec2 com = (blackHole * u_blackHoleMass + blackHole2 * u_blackHole2Mass) / max(1e-5, u_blackHoleMass + u_blackHole2Mass);
-  vec2 dCom = vec2((v_uv.x - com.x) * aspect, v_uv.y - com.y);
-  float rCom = length(dCom);
-  vec2 binaryDir = normalize(vec2((blackHole2.x - blackHole.x), (blackHole2.y - blackHole.y)));
-  float binaryFreq = 1.2 / max(0.08, r12);
-  float wavePhase = u_time * binaryFreq * 6.2831853 - rCom * 22.0;
-  float strain = clamp((u_blackHoleMass * u_blackHole2Mass) / (r12 * r12 + soft * soft) * 0.04, 0.0, 1.0);
-  float waveEnvelope = exp(-rCom / max(0.04, r12 * 2.2));
-  vec2 waveForce = binaryDir * (sin(wavePhase) * strain * waveEnvelope * 0.09);
+  vec2 forceBH = vec2(0.0);
+  for (int i = 0; i < 16; i++) {
+    if (i >= u_numBlackHoles) {
+      break;
+    }
+    if (u_blackHolesEnabled[i] < 0.5) {
+      continue;
+    }
+
+    vec4 hole = u_blackHolesData[i];
+    forceBH += accumulateBlackHoleField(
+      vec2(hole.y, hole.z),
+      hole.x,
+      hole.w,
+      aspect,
+      horizonBoost,
+      particleMass,
+      horizon,
+      soft,
+      spinScale
+    );
+  }
+
+  vec2 forceWH = accumulateWhiteHoleField(
+    u_whiteHolePosition,
+    u_whiteHoleMass,
+    u_whiteHoleRadius,
+    aspect,
+    particleMass,
+    soft
+  );
 
   vec2 force = (
-    dirBHUV * accelBH * dampingNearCore +
-    dirBH2UV * accelBH2 * dampingNearCore2 +
-    dirWHUV * accelWH +
-    tanBHUV * dragBH * dampingNearCore * spinScale +
-    tanBH2UV * dragBH2 * dampingNearCore2 * spinScale +
-    waveForce
+    forceBH +
+    forceWH
   ) * u_gravityStrength;
 
   float maxForce = 1.0;

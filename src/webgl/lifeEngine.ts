@@ -36,7 +36,25 @@ export async function startLifeEngine(
     canvas: HTMLCanvasElement,
     options: LifeEngineOptions = {}
 ): Promise<LifeEngineHandle> {
+    const MAX_BLACK_HOLES = 16;
     const { setFps, setPups, getOffset, getControls, onMetrics } = options;
+    const searchParams = new URLSearchParams(window.location.search);
+    const perfProbeEnabled =
+        searchParams.get('perfProbe') === '1' ||
+        window.localStorage.getItem('elife:perfProbe') === '1';
+    const objectiveMetricsEnabled =
+        searchParams.get('metrics') === 'on' ||
+        window.localStorage.getItem('elife:metrics') === 'on';
+    const metricsSampleIntervalFrames = Math.max(
+        15,
+        Number.parseInt(searchParams.get('metricsEvery') ?? '90', 10) || 90
+    );
+
+    const frameDtWindow: number[] = [];
+    const frameWindowSize = 240;
+    let frameIndex = 0;
+    let lastMetricsDurationMs = 0;
+    let lastMetricsFrame = Number.NEGATIVE_INFINITY;
     const gl = canvas.getContext('webgl2', {
         preserveDrawingBuffer: true,
         alpha: false,
@@ -128,8 +146,8 @@ void main() {
         gl.bindTexture(gl.TEXTURE_2D, t);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
         allocateTextureStorage(t, useFloat);
         return t;
     };
@@ -299,6 +317,60 @@ void main() {
     ) => {
         gl.useProgram(program);
         const controls = sanitizeSimulationControls(getControls?.() ?? defaultSimulationControls);
+
+        const uploadBlackHoleArrayUniforms = () => {
+            const holes = controls.blackHoles.slice(0, MAX_BLACK_HOLES);
+            const masses = new Float32Array(MAX_BLACK_HOLES);
+            const spins = new Float32Array(MAX_BLACK_HOLES);
+            const enabled = new Float32Array(MAX_BLACK_HOLES);
+            const positions = new Float32Array(MAX_BLACK_HOLES * 2);
+            const packed = new Float32Array(MAX_BLACK_HOLES * 4);
+
+            for (let i = 0; i < holes.length; i += 1) {
+                const hole = holes[i];
+                masses[i] = hole.mass;
+                spins[i] = hole.spin;
+                enabled[i] = hole.enabled ? 1 : 0;
+                positions[i * 2] = hole.x;
+                positions[i * 2 + 1] = hole.y;
+                packed[i * 4] = hole.mass;
+                packed[i * 4 + 1] = hole.x;
+                packed[i * 4 + 2] = hole.y;
+                packed[i * 4 + 3] = hole.spin;
+            }
+
+            const countLoc = gl.getUniformLocation(program, 'u_numBlackHoles');
+            if (countLoc !== null) {
+                gl.uniform1i(countLoc, holes.length);
+            }
+
+            const massesLoc = gl.getUniformLocation(program, 'u_blackHoleMasses');
+            if (massesLoc !== null) {
+                gl.uniform1fv(massesLoc, masses);
+            }
+
+            const spinsLoc = gl.getUniformLocation(program, 'u_blackHoleSpins');
+            if (spinsLoc !== null) {
+                gl.uniform1fv(spinsLoc, spins);
+            }
+
+            const enabledLoc = gl.getUniformLocation(program, 'u_blackHolesEnabled');
+            if (enabledLoc !== null) {
+                gl.uniform1fv(enabledLoc, enabled);
+            }
+
+            const positionsLoc = gl.getUniformLocation(program, 'u_blackHolePositions');
+            if (positionsLoc !== null) {
+                gl.uniform2fv(positionsLoc, positions);
+            }
+
+            const packedLoc = gl.getUniformLocation(program, 'u_blackHolesData');
+            if (packedLoc !== null) {
+                gl.uniform4fv(packedLoc, packed);
+            }
+        };
+
+        uploadBlackHoleArrayUniforms();
         const resolutionLoc = gl.getUniformLocation(program, 'u_resolution');
         if (resolutionLoc !== null) {
             gl.uniform2f(resolutionLoc, canvas.width, canvas.height);
@@ -310,11 +382,11 @@ void main() {
             if (i === 0) {
                 setSamplerUniform(program, ['u_prevState', 'u_state', 'u_inputDensity', 'u_texture'], i);
             } else if (i === 1) {
-                setSamplerUniform(program, ['u_forceField', 'u_velocity', 'u_inputDensity', 'u_wells', 'u_input'], i);
+                setSamplerUniform(program, ['u_forceField', 'u_inputDensity', 'u_wells', 'u_input'], i);
             } else if (i === 2) {
-                setSamplerUniform(program, ['u_velocity', 'u_wells', 'u_input'], i);
+                setSamplerUniform(program, ['u_velocity'], i);
             } else {
-                setSamplerUniform(program, ['u_input'], i);
+                setSamplerUniform(program, ['u_wells', 'u_input'], i);
             }
         });
 
@@ -334,9 +406,29 @@ void main() {
             gl.uniform1f(gravityLoc, controls.gravityStrength);
         }
 
+        const blackHoleEnabledLoc = gl.getUniformLocation(program, 'u_blackHoleEnabled');
+        if (blackHoleEnabledLoc !== null) {
+            gl.uniform1f(blackHoleEnabledLoc, controls.blackHoleEnabled ? 1 : 0);
+        }
+
+        const blackHole2EnabledLoc = gl.getUniformLocation(program, 'u_blackHole2Enabled');
+        if (blackHole2EnabledLoc !== null) {
+            gl.uniform1f(blackHole2EnabledLoc, controls.blackHole2Enabled ? 1 : 0);
+        }
+
+        const blackHole3EnabledLoc = gl.getUniformLocation(program, 'u_blackHole3Enabled');
+        if (blackHole3EnabledLoc !== null) {
+            gl.uniform1f(blackHole3EnabledLoc, controls.blackHole3Enabled ? 1 : 0);
+        }
+
+        const whiteHoleEnabledLoc = gl.getUniformLocation(program, 'u_whiteHoleEnabled');
+        if (whiteHoleEnabledLoc !== null) {
+            gl.uniform1f(whiteHoleEnabledLoc, controls.whiteHoleEnabled ? 1 : 0);
+        }
+
         const blackHoleMassLoc = gl.getUniformLocation(program, 'u_blackHoleMass');
         if (blackHoleMassLoc !== null) {
-            gl.uniform1f(blackHoleMassLoc, controls.blackHoleMass);
+            gl.uniform1f(blackHoleMassLoc, controls.blackHoleEnabled ? controls.blackHoleMass : 0);
         }
 
         const blackHolePositionLoc = gl.getUniformLocation(program, 'u_blackHolePosition');
@@ -351,7 +443,7 @@ void main() {
 
         const blackHole2MassLoc = gl.getUniformLocation(program, 'u_blackHole2Mass');
         if (blackHole2MassLoc !== null) {
-            gl.uniform1f(blackHole2MassLoc, controls.blackHole2Mass);
+            gl.uniform1f(blackHole2MassLoc, controls.blackHole2Enabled ? controls.blackHole2Mass : 0);
         }
 
         const blackHole2PositionLoc = gl.getUniformLocation(program, 'u_blackHole2Position');
@@ -362,6 +454,21 @@ void main() {
         const blackHole2SpinLoc = gl.getUniformLocation(program, 'u_blackHole2Spin');
         if (blackHole2SpinLoc !== null) {
             gl.uniform1f(blackHole2SpinLoc, controls.blackHole2Spin);
+        }
+
+        const blackHole3MassLoc = gl.getUniformLocation(program, 'u_blackHole3Mass');
+        if (blackHole3MassLoc !== null) {
+            gl.uniform1f(blackHole3MassLoc, controls.blackHole3Enabled ? controls.blackHole3Mass : 0);
+        }
+
+        const blackHole3PositionLoc = gl.getUniformLocation(program, 'u_blackHole3Position');
+        if (blackHole3PositionLoc !== null) {
+            gl.uniform2f(blackHole3PositionLoc, controls.blackHole3X, controls.blackHole3Y);
+        }
+
+        const blackHole3SpinLoc = gl.getUniformLocation(program, 'u_blackHole3Spin');
+        if (blackHole3SpinLoc !== null) {
+            gl.uniform1f(blackHole3SpinLoc, controls.blackHole3Spin);
         }
 
         const gravitySofteningLoc = gl.getUniformLocation(program, 'u_gravitySoftening');
@@ -376,12 +483,12 @@ void main() {
 
         const whiteHoleMassLoc = gl.getUniformLocation(program, 'u_whiteHoleMass');
         if (whiteHoleMassLoc !== null) {
-            gl.uniform1f(whiteHoleMassLoc, controls.whiteHoleMass);
+            gl.uniform1f(whiteHoleMassLoc, controls.whiteHoleEnabled ? controls.whiteHoleMass : 0);
         }
 
         const whiteHoleRadiusLoc = gl.getUniformLocation(program, 'u_whiteHoleRadius');
         if (whiteHoleRadiusLoc !== null) {
-            gl.uniform1f(whiteHoleRadiusLoc, controls.whiteHoleRadius);
+            gl.uniform1f(whiteHoleRadiusLoc, controls.whiteHoleEnabled ? controls.whiteHoleRadius : 0.0001);
         }
 
         const whiteHolePositionLoc = gl.getUniformLocation(program, 'u_whiteHolePosition');
@@ -391,12 +498,47 @@ void main() {
 
         const whiteHoleEmissionLoc = gl.getUniformLocation(program, 'u_whiteHoleEmission');
         if (whiteHoleEmissionLoc !== null) {
-            gl.uniform1f(whiteHoleEmissionLoc, controls.whiteHoleEmission);
+            gl.uniform1f(whiteHoleEmissionLoc, controls.whiteHoleEnabled ? controls.whiteHoleEmission : 0);
         }
 
         const redshiftStrengthLoc = gl.getUniformLocation(program, 'u_redshiftStrength');
         if (redshiftStrengthLoc !== null) {
             gl.uniform1f(redshiftStrengthLoc, controls.redshiftStrength);
+        }
+
+        const spectralRenderingEnabledLoc = gl.getUniformLocation(program, 'u_spectralRenderingEnabled');
+        if (spectralRenderingEnabledLoc !== null) {
+            gl.uniform1f(spectralRenderingEnabledLoc, controls.spectralRenderingEnabled ? 1 : 0);
+        }
+
+        const spectralShiftStrengthLoc = gl.getUniformLocation(program, 'u_spectralShiftStrength');
+        if (spectralShiftStrengthLoc !== null) {
+            gl.uniform1f(spectralShiftStrengthLoc, controls.spectralShiftStrength);
+        }
+
+        const spectralSpeedReferenceLoc = gl.getUniformLocation(program, 'u_spectralSpeedReference');
+        if (spectralSpeedReferenceLoc !== null) {
+            gl.uniform1f(spectralSpeedReferenceLoc, controls.spectralSpeedReference);
+        }
+
+        const spectralViewAngleLoc = gl.getUniformLocation(program, 'u_spectralViewAngle');
+        if (spectralViewAngleLoc !== null) {
+            gl.uniform1f(spectralViewAngleLoc, controls.spectralViewAngle * (Math.PI / 180));
+        }
+
+        const spectralHueOffsetLoc = gl.getUniformLocation(program, 'u_spectralHueOffset');
+        if (spectralHueOffsetLoc !== null) {
+            gl.uniform1f(spectralHueOffsetLoc, controls.spectralHueOffset);
+        }
+
+        const spectralHueSpanLoc = gl.getUniformLocation(program, 'u_spectralHueSpan');
+        if (spectralHueSpanLoc !== null) {
+            gl.uniform1f(spectralHueSpanLoc, controls.spectralHueSpan);
+        }
+
+        const spectralSaturationLoc = gl.getUniformLocation(program, 'u_spectralSaturation');
+        if (spectralSaturationLoc !== null) {
+            gl.uniform1f(spectralSaturationLoc, controls.spectralSaturation);
         }
 
         const showGravityFieldLoc = gl.getUniformLocation(program, 'u_showGravityField');
@@ -427,6 +569,11 @@ void main() {
         const lifeUpdateRateLoc = gl.getUniformLocation(program, 'u_lifeUpdateRate');
         if (lifeUpdateRateLoc !== null) {
             gl.uniform1f(lifeUpdateRateLoc, controls.lifeUpdateRate);
+        }
+
+        const lifeEnabledLoc = gl.getUniformLocation(program, 'u_lifeEnabled');
+        if (lifeEnabledLoc !== null) {
+            gl.uniform1f(lifeEnabledLoc, controls.lifeEnabled ? 1 : 0);
         }
 
         const denseMassCutoffLoc = gl.getUniformLocation(program, 'u_denseMassCutoff');
@@ -475,6 +622,7 @@ void main() {
     };
 
     const sampleMetrics = () => {
+        const sampleStart = performance.now();
         const stateReadback = new Uint8Array(canvas.width * canvas.height * 4);
         const velocityReadback = new Uint8Array(canvas.width * canvas.height * 4);
 
@@ -485,6 +633,40 @@ void main() {
         gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, velocityReadback);
 
         onMetrics?.(computeObjectiveMetrics(stateReadback, velocityReadback, canvas.width, canvas.height));
+        return performance.now() - sampleStart;
+    };
+
+    const logPerfProbeFrame = (dtMs: number) => {
+        if (!perfProbeEnabled) {
+            return;
+        }
+
+        frameDtWindow.push(dtMs);
+        if (frameDtWindow.length > frameWindowSize) {
+            frameDtWindow.shift();
+        }
+
+        const nearMetricsSample = frameIndex - lastMetricsFrame <= 2;
+        if (dtMs >= 22) {
+            console.warn(
+                `[perf-probe] long frame ${dtMs.toFixed(2)}ms at frame ${frameIndex}. ` +
+                `nearMetrics=${nearMetricsSample} metricsReadMs=${lastMetricsDurationMs.toFixed(2)}`
+            );
+        }
+
+        if (frameDtWindow.length >= 120 && frameIndex % 60 === 0) {
+            const sorted = [...frameDtWindow].sort((a, b) => a - b);
+            const p99Index = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99));
+            const p99 = sorted[p99Index];
+            const average = frameDtWindow.reduce((sum, value) => sum + value, 0) / frameDtWindow.length;
+            const onePercentLowFps = p99 > 0 ? 1000 / p99 : 0;
+
+            console.info(
+                `[perf-probe] avg=${average.toFixed(2)}ms ` +
+                `p99=${p99.toFixed(2)}ms 1%low=${onePercentLowFps.toFixed(1)}fps ` +
+                `metrics=${objectiveMetricsEnabled ? 'on' : 'off'} every=${metricsSampleIntervalFrames}f`
+            );
+        }
     };
 
     const readFramebuffer = (framebuffer: WebGLFramebuffer) => {
@@ -559,14 +741,21 @@ void main() {
     function loop() {
         if (!running) return;
         const now = performance.now();
-        const dt = now - last;
+        const dtRaw = now - last;
         last = now;
+        const dt = Number.isFinite(dtRaw) && dtRaw > 0 ? dtRaw : 16.6667;
         timestepSeconds = Math.min(0.05, Math.max(1 / 240, dt / 1000));
         const controls = sanitizeSimulationControls(getControls?.() ?? defaultSimulationControls);
 
-        fpsSmooth = fpsSmooth * 0.9 + (1000 / dt) * 0.1;
-        setFps?.(fpsSmooth);
-        setPups?.(fpsSmooth * canvas.width * canvas.height);
+        const instantaneousFps = 1000 / dt;
+        const seededFps = Number.isFinite(fpsSmooth) ? fpsSmooth : instantaneousFps;
+        fpsSmooth = seededFps * 0.9 + instantaneousFps * 0.1;
+        const safeFps = Number.isFinite(fpsSmooth) ? fpsSmooth : 0;
+        frameIndex += 1;
+        logPerfProbeFrame(dt);
+
+        setFps?.(safeFps);
+        setPups?.(safeFps * canvas.width * canvas.height);
 
         if (!controls.paused) {
             pass(densityProgram, [A], fC, now);
@@ -586,11 +775,18 @@ void main() {
             bindFramebufferTexture(fF, F);
         }
 
-        pass(displayProgram, [A, B, E], null, now);
+        pass(displayProgram, [A, B, V, E], null, now);
 
         metricFrameCounter += 1;
-        if (metricFrameCounter >= 90) {
-            sampleMetrics();
+        if (objectiveMetricsEnabled && metricFrameCounter >= metricsSampleIntervalFrames) {
+            lastMetricsDurationMs = sampleMetrics();
+            lastMetricsFrame = frameIndex;
+            if (perfProbeEnabled) {
+                console.info(
+                    `[perf-probe] objective metrics sampled in ${lastMetricsDurationMs.toFixed(2)}ms ` +
+                    `at frame ${frameIndex}`
+                );
+            }
             metricFrameCounter = 0;
         }
 

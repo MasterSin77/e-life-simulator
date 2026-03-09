@@ -6,6 +6,7 @@ out vec4 fragColor;
 
 uniform sampler2D u_state;
 uniform sampler2D u_forceField;
+uniform sampler2D u_velocity;
 uniform sampler2D u_wells;
 uniform vec2 u_offset;
 uniform vec2 u_resolution;
@@ -13,23 +14,51 @@ uniform float u_wellGlowDensity;
 uniform float u_wellGlowDistance;
 uniform float u_showGravityField;
 uniform float u_redshiftStrength;
+uniform float u_spectralRenderingEnabled;
+uniform float u_spectralShiftStrength;
+uniform float u_spectralSpeedReference;
+uniform float u_spectralViewAngle;
+uniform float u_spectralHueOffset;
+uniform float u_spectralHueSpan;
+uniform float u_spectralSaturation;
 uniform float u_eventHorizonRadius;
-uniform float u_blackHoleMass;
-uniform vec2 u_blackHolePosition;
-uniform float u_blackHole2Mass;
-uniform vec2 u_blackHole2Position;
+uniform int u_numBlackHoles;
+uniform vec4 u_blackHolesData[16];
+uniform float u_blackHolesEnabled[16];
 uniform float u_gravitySoftening;
+uniform float u_whiteHoleEnabled;
 uniform float u_whiteHoleRadius;
 uniform vec2 u_whiteHolePosition;
+
+vec3 hsv2rgb(vec3 c) {
+  vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  vec3 rgb = clamp(p - 1.0, 0.0, 1.0);
+  return c.z * mix(vec3(1.0), rgb, c.y);
+}
+
+float wrapDelta1(float from, float to) {
+  float delta = to - from;
+  if (delta > 0.5) {
+    return delta - 1.0;
+  }
+  if (delta < -0.5) {
+    return delta + 1.0;
+  }
+  return delta;
+}
+
+vec2 wrapDelta2(vec2 from, vec2 to) {
+  return vec2(wrapDelta1(from.x, to.x), wrapDelta1(from.y, to.y));
+}
 
 void main() {
   vec2 uv = v_uv + u_offset;
   vec4 state = texture(u_state, uv);
   vec4 force = texture(u_forceField, uv);
+  vec2 velocity = texture(u_velocity, uv).rg * 2.0 - 1.0;
   float wells = texture(u_wells, uv).r;
 
   float life = state.r;
-  vec3 lifeColor = mix(vec3(0.0), vec3(1.0, 0.1, 0.1), life);
 
   vec2 texel = 1.0 / u_resolution;
   float sourceThreshold = mix(0.96, 0.68, u_wellGlowDensity);
@@ -51,52 +80,76 @@ void main() {
   float glow = clamp(glowAccum * 0.11 + baseSource * 0.25, 0.0, 1.0);
   float wellAlpha = clamp(glow * mix(0.08, 0.32, u_wellGlowDensity), 0.0, 0.35);
 
-  vec2 centered = uv - u_blackHolePosition;
-  centered.x *= u_resolution.x / u_resolution.y;
-  float radius1 = length(centered);
-  vec2 centered2 = uv - u_blackHole2Position;
-  centered2.x *= u_resolution.x / u_resolution.y;
-  float radius2 = length(centered2);
-
   vec2 f = force.rg * 2.0 - 1.0;
   float soft = max(0.001, u_gravitySoftening * 0.01);
-  float potential1 = u_blackHoleMass / (radius1 + soft);
-  float potential2 = u_blackHole2Mass / (radius2 + soft);
-  float potentialMag = clamp((potential1 + potential2) * 0.045, 0.0, 1.0);
+  float horizon = max(0.001, u_eventHorizonRadius);
+
+  float potentialSum = 0.0;
+  float redshift = 0.0;
+  float blackHoleCore = 0.0;
+  float aspect = u_resolution.x / u_resolution.y;
+
+  for (int i = 0; i < 16; i++) {
+    if (i >= u_numBlackHoles) {
+      break;
+    }
+    if (u_blackHolesEnabled[i] < 0.5) {
+      continue;
+    }
+
+    vec4 hole = u_blackHolesData[i];
+    float mass = hole.x;
+    vec2 centered = wrapDelta2(vec2(hole.y, hole.z), uv);
+    centered.x *= aspect;
+    float radius = length(centered);
+    float massMask = smoothstep(0.0, 0.2, mass);
+
+    potentialSum += mass / (radius + soft);
+
+    float holeRedshift = smoothstep(horizon * 1.2, horizon * 6.0, radius);
+    holeRedshift = (1.0 - holeRedshift) * clamp(u_redshiftStrength, 0.0, 2.0) * massMask;
+    redshift = max(redshift, holeRedshift);
+
+    float holeCore = (1.0 - smoothstep(horizon * 0.7, horizon, radius)) * massMask;
+    blackHoleCore = max(blackHoleCore, holeCore);
+  }
+
+  float potentialMag = clamp(potentialSum * 0.045, 0.0, 1.0);
   float forceMag = clamp(length(f), 0.0, 1.0);
   float fieldMag = max(forceMag, potentialMag);
   vec3 gravityColor = vec3(0.1, 0.45, 1.0) * fieldMag;
 
-  float horizon = max(0.001, u_eventHorizonRadius);
-  float redshift1 = smoothstep(horizon * 1.2, horizon * 6.0, radius1);
-  redshift1 = (1.0 - redshift1) * clamp(u_redshiftStrength, 0.0, 2.0);
-  float redshift2 = smoothstep(horizon * 1.2, horizon * 6.0, radius2);
-  redshift2 = (1.0 - redshift2) * clamp(u_redshiftStrength, 0.0, 2.0) * smoothstep(0.0, 0.2, u_blackHole2Mass);
-  float redshift = max(redshift1, redshift2);
+  float speedRef = max(0.001, u_spectralSpeedReference);
+  vec2 viewDir = vec2(cos(u_spectralViewAngle), sin(u_spectralViewAngle));
+  float lineSpeed = dot(velocity, normalize(viewDir));
+  float beta = clamp(lineSpeed / speedRef, -0.985, 0.985);
+  float dopplerFactor = sqrt((1.0 + beta) / (1.0 - beta));
+  float dopplerShift = clamp(log2(dopplerFactor) * u_spectralShiftStrength, -1.0, 1.0);
+  float shift01 = clamp(0.5 + 0.5 * dopplerShift, 0.0, 1.0);
+
+  float hueShifted = fract(
+    u_spectralHueOffset +
+    shift01 * u_spectralHueSpan -
+    clamp(redshift, 0.0, 1.0) * 0.22
+  );
+  float speedMix = clamp(length(velocity) / speedRef, 0.0, 1.0);
+  float value = mix(0.16, 1.0, speedMix);
+  vec3 spectralColor = hsv2rgb(vec3(hueShifted, clamp(u_spectralSaturation, 0.0, 1.0), value));
+  vec3 classicColor = mix(vec3(0.0), vec3(1.0, 0.1, 0.1), life);
+  vec3 lifeColor = mix(classicColor, spectralColor * life, clamp(u_spectralRenderingEnabled, 0.0, 1.0));
 
   vec3 color = mix(lifeColor, vec3(1.0), wellAlpha);
   color = mix(color, color + gravityColor, clamp(u_showGravityField, 0.0, 1.0));
-  color.r *= 1.0 + 0.35 * redshift;
-  color.g *= 1.0 - 0.55 * redshift;
-  color.b *= 1.0 - 0.75 * redshift;
+  color = mix(color, color * vec3(1.15, 0.8, 0.6), clamp(redshift * 0.7, 0.0, 1.0));
 
-  float blackHoleCore1 = 1.0 - smoothstep(horizon * 0.7, horizon, radius1);
-  float secondMassMask = smoothstep(0.0, 0.2, u_blackHole2Mass);
-  float blackHoleCore2 = (1.0 - smoothstep(horizon * 0.7, horizon, radius2)) * secondMassMask;
-  float blackHoleCore = max(blackHoleCore1, blackHoleCore2);
   color = mix(color, vec3(0.0), blackHoleCore);
 
-  float ring2Inner = smoothstep(horizon * 1.05, horizon * 1.55, radius2);
-  float ring2Outer = 1.0 - smoothstep(horizon * 1.55, horizon * 2.35, radius2);
-  float ring2 = clamp(ring2Inner * ring2Outer, 0.0, 1.0) * secondMassMask;
-  color += vec3(1.0, 0.78, 0.34) * ring2 * 0.28;
-
   vec2 whiteHole = u_whiteHolePosition;
-  vec2 wh = uv - whiteHole;
+  vec2 wh = wrapDelta2(whiteHole, uv);
   wh.x *= u_resolution.x / u_resolution.y;
   float wr = length(wh);
-  float whiteCore = 1.0 - smoothstep(u_whiteHoleRadius * 0.5, u_whiteHoleRadius, wr);
-  float whiteGlow = exp(-wr / max(0.001, u_whiteHoleRadius * 2.5));
+  float whiteCore = (1.0 - smoothstep(u_whiteHoleRadius * 0.5, u_whiteHoleRadius, wr)) * clamp(u_whiteHoleEnabled, 0.0, 1.0);
+  float whiteGlow = exp(-wr / max(0.001, u_whiteHoleRadius * 2.5)) * clamp(u_whiteHoleEnabled, 0.0, 1.0);
   color += vec3(0.35, 0.55, 1.0) * (whiteCore * 0.9 + whiteGlow * 0.2);
 
   fragColor = vec4(color, 1.0);

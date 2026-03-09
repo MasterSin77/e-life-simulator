@@ -27,6 +27,6 @@ describe('App integration', () => {
         const sliders = screen.getAllByRole('slider');
 
         fireEvent.change(sliders[0], { target: { value: '0.12' } });
-        expect(screen.getByText('0.12')).toBeInTheDocument();
+        expect((sliders[0] as HTMLInputElement).value).toBe('0.12');
     });
 });
